@@ -1,4 +1,4 @@
-> **Mandatory for MANG_07:** Read [START-HERE-MANG-07.md](START-HERE-MANG-07.md) first. Its active-step scope and exact allowlist take precedence over conflicting legacy development instructions below. The older plans and reports are historical context.
+> **Mandatory for MANG_07:** Read [START-HERE-MANG-07.md](START-HERE-MANG-07.md) first. Its active-step scope and exact allowlist take precedence over conflicting legacy development instructions below. The older plans and reports are historical context. Preserve the Main Page UI and interaction behavior, including any indirect effects of shared code. Stages 0–3 do not authorize Main Page data updates. A later stage may update existing field values only when it explicitly specifies the need, verified source, and exact scope.
 
 # Repository Agent Instructions — PVPT
 
