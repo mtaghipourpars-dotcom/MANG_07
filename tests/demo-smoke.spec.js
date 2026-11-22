@@ -94,13 +94,11 @@ test('issue capture and decision memory persist in local browser storage', async
   await page.goto('/demo/index.html');
   await page.locator('.nav[data-page="risk"]').click();
   await page.locator('[data-view="issues"]').click();
-  const issue=page.locator('form[data-form="issue"]');
+  const issue=page.locator('form[data-form="mang07-case"]');
   await issue.locator('[name="title"]').fill('DEMO regression issue');
-  await issue.locator('[name="type"]').selectOption('MATERIAL');
-  await issue.locator('[name="severity"]').selectOption('HIGH');
-  await issue.locator('[name="object"]').fill('DEMO-CELL-01');
+  await issue.locator('[name="resource"]').selectOption('MACH-TEST-01');
   await issue.locator('[name="description"]').fill('Synthetic test only');
-  await issue.getByRole('button',{name:'ثبت ایشوی دمو'}).click();
+  await issue.getByRole('button',{name:'ثبت چالش'}).click();
   await expect(page.locator('#entityContent')).toContainText('DEMO regression issue');
   await page.reload();
   await page.locator('.nav[data-page="risk"]').click();

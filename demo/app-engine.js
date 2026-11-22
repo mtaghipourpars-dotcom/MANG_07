@@ -27,6 +27,7 @@ let db={issues:[],solutions:[],resources:[],projects:[],commitments:[],catalogRe
 try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&typeof saved==='object')db={...db,...saved,activeFilter:null};}catch(e){}
 let catalog={families:[],products:[],assignments:[],projects:[],commitments:[],components:[],orders:[],operations:[],resources:[],suppliers:[],issues:[]};
 let currentPage='home',currentView='overview';
+let assignmentFamily=null;
 const officialUrl='https://mapnagenerator.com/Fa/Products';
 const seedProducts=[
  {product_id:'PUB-THERMAL-MGG72-SH2',family_id:'THERMAL_GENERATORS',name:'MGG72-SH2',data_class:'PUBLIC_VERIFIED',source_reference:officialUrl},
@@ -426,9 +427,11 @@ function viewPortfolio(view){
    return '<button class="app-family" data-action="family-filter" data-family="'+esc(fam.family_id)+'"><span>◈</span><strong>'+esc(fam.label_fa)+'</strong><small>'+esc(fam.family_id)+'</small>'+provenance(fam)+(total1404?badge('برنامه ۱۴۰۴: '+fa(total1404)+' واحد','blue'):badge('بدون واحد ثبت‌شده در جدول ۱۴۰۴','neutral'))+'</button>';
  }).join('')+'</div>');
  if(view==='assignments'){
-   const list=activeFam?catalog.assignments.filter(a=>a.family_id===activeFam||(catalog.products.find(p=>p.product_id===a.product_id)||{}).family_id===activeFam):catalog.assignments;
-   const units1404=activeFam?company1404DetailedUnits.filter(u=>u.family_id===activeFam):company1404DetailedUnits;
-   return card('ارتباط محصول و پروژه‌های سال ۱۴۰۴ شرکت','<div class="app-filter-row">'+select('فیلتر خانواده','family',[['','همه خانواده‌ها'],...catalog.families.map(fm=>[fm.family_id,fm.label_fa])],false)+'</div>'+table(['سریال محصول','نوع ژنراتور','نام نیروگاه','واحد داخلی','تاریخ نیاز کارفرما','توضیحات','عملیات'],units1404.map(u=>[
+   const family=assignmentFamily??activeFam;
+   const list=family?catalog.assignments.filter(a=>a.family_id===family||(catalog.products.find(p=>p.product_id===a.product_id)||{}).family_id===family):catalog.assignments;
+   const units1404=family?company1404DetailedUnits.filter(u=>u.family_id===family):company1404DetailedUnits;
+   const familySelect=select('فیلتر خانواده','assignmentFamily',[['','همه خانواده‌ها'],...catalog.families.map(fm=>[fm.family_id,fm.label_fa])],false);
+   return card('ارتباط محصول و پروژه‌های سال ۱۴۰۴ شرکت','<div class="app-filter-row">'+familySelect.replace('value="'+esc(family)+'"','value="'+esc(family)+'" selected')+'</div>'+table(['سریال محصول','نوع ژنراتور','نام نیروگاه','واحد داخلی','تاریخ نیاز کارفرما','توضیحات','عملیات'],units1404.map(u=>[
      '<code>'+esc(u.serial)+'</code>',
      esc(u.category_fa),
      '<b>'+esc(u.plant_fa)+'</b>',
@@ -564,6 +567,11 @@ function viewProjects(view){
    const totalUnits=company1404DetailedUnits.length;
    const statorReadyCount=company1404DetailedUnits.filter(u=>u.note_fa&&u.note_fa!=='-').length;
    const legacyMatch=f?.project && ceoProjects.some(p=>p.project_id===f.project)?filterProjectsList(catalog.projects):[];
+   const localProjects=filterProjectsList(db.projects);
+   const localProjectCard=localProjects.length?card('پروژه‌های تمرینی ثبت‌شده',table(
+     ['شناسه','پروژه','خانواده','وضعیت','منشأ','عملیات'],
+     localProjects.map(p=>[esc(p.project_id),esc(p.project_name),esc(catalog.families.find(fm=>fm.family_id===p.family_id)?.label_fa||p.family_id),esc(p.status),provenance(p),button('زنجیره تعهد','project-chain','secondary','data-id="'+esc(p.project_id)+'"')])
+   )):'';
 
    return demoNotice
     + metrics([
@@ -579,12 +587,18 @@ function viewProjects(view){
       badge('برنامه ۱۴۰۴','good'))
     + groupCards.join('')
     + busductCard
+    + localProjectCard
     + (legacyMatch.length ? card('سناریوی تمرینی مرتبط (DEMO_SYNTHETIC)',table(['شناسه','نام پروژه','پیشرفت','وضعیت','ارزش در معرض خطر (DEMO)','مهلت تا نقطه غیرقابل بازگشت','منشأ','عملیات'],legacyMatch.map(p=>['<b>'+esc(p.project_id)+'</b>',esc(p.project_name||p.name),p.progress!==undefined?fa(p.progress)+'٪':'—',badge(p.status_fa||'DEMO','warn'),p.var_billion?fa(p.var_billion)+' میلیارد تومان':'—',p.days_to_pnr?fa(p.days_to_pnr)+' روز':'—',provenance(p),button('زنجیره تعهد','project-chain','secondary','data-id="'+esc(p.project_id)+'"')]))):'')
     + card('زنجیره ردیابی عملیاتی', '<div class="app-flow">'+['Project / Commitment','BOM Component / Cell','Production Order','Routing / Operation','Machine / Material / Manpower'].map((x,i)=>'<div class="app-flow-node"><b>0'+(i+1)+'</b><span>'+x+'</span></div>').join('')+'</div><p class="app-muted">تمام شناسه‌ها و مقادیر این صفحه ساختگی هستند مگر آنکه منبع داخلی معتبر صراحتاً تأیید شده باشد.</p>')
     + card('ساخت پروژه تمرینی',form('project',[input('شناسه دمو','id','DEMO-PROJ-01'),input('نام پروژه','name','نام سناریوی تمرینی'),select('خانواده محصول','family',catalog.families.map(fm=>[fm.family_id,fm.label_fa])),select('وضعیت','status',[['PLANNED','برنامه‌ریزی‌شده'],['RUNNING','در حال اجرا'],['BLOCKED','متوقف / مسدود']])],'افزودن پروژه ساختگی'));
  }
 
  if(view==='commitments'){
+   const localCommitments=db.commitments.filter(c=>!f?.project||c.project_id===f.project);
+   const localCommitmentCard=localCommitments.length?card('تعهدات تمرینی ثبت‌شده',table(
+     ['شناسه','پروژه','شرح','موعد روز نسبی','منشأ'],
+     localCommitments.map(c=>[esc(c.commitment_id),esc(c.project_id),esc(c.label),fa(c.due_day),provenance(c)])
+   )):'';
    return demoNotice+metrics([
      stat(isEn?'Total Generator Commitments':'جمع تعهدات ژنراتور ۱۴۰۴',fa(34)+(isEn?' Units':' واحد'),'۱۸۵ · ۵۰ · ۲۵ · ۲۰۰ · ۱۸۵TX · ۳۷۶ · ۲۳۸ مگاوات','blue'),
      stat(isEn?'Busduct Commitments':'جمع تعهدات باسداکت ۱۴۰۴',fa(17)+(isEn?' Units':' واحد'),'۱۸۵ (۴) · ۲۰۰ (۴) · ۵۰ (۶) · ۱۸۵TX (۲) · ۲۳۸ (۱)','purple'),
@@ -594,7 +608,7 @@ function viewProjects(view){
      render1404MacroTable(isEn, f?.family||'')
      + render1404SignatoriesBanner(isEn),
      badge('INTERNAL_VERIFIED (برنامه مصوب ۱۴۰۴)','good')
-   )+card('ثبت تعهد تمرینی',form('commitment',[input('شناسه تعهد','id','DEMO-COM-01'),input('شناسه پروژه','project','MGG58-SA2/205'),input('شرح تعهد','name','تعهد تمرینی'),input('موعد روز نسبی در سناریو','due','30','number')],'ثبت تعهد ساختگی'));
+   )+localCommitmentCard+card('ثبت تعهد تمرینی',form('commitment',[input('شناسه تعهد','id','DEMO-COM-01'),input('شناسه پروژه','project','MGG58-SA2/205'),input('شرح تعهد','name','تعهد تمرینی'),input('موعد روز نسبی در سناریو','due','30','number')],'ثبت تعهد ساختگی'));
  }
 
  if(view==='milestones'){
@@ -639,7 +653,15 @@ function viewProjects(view){
        (isEn?'ERP Production Order / Progress: ':'سفارش تولید و پیشرفت واقعی SAP: ')+'INTERNAL SOURCE REQUIRED'
      ].map((x,i)=>'<div class="app-flow-node"><b>0'+(i+1)+'</b><span>'+esc(x)+'</span></div>').join('')+'</div>'+render1404SignatoriesBanner(isEn));
    }
-   const proj=ceoProjects.find(p=>p.project_id===projId)||ceoProjects[0];
+   const localProject=db.projects.find(p=>p.project_id===projId);
+   if(localProject){
+     const commitments=db.commitments.filter(c=>c.project_id===projId);
+     return card('زنجیره تعهد پروژهٔ تمرینی '+esc(localProject.project_id),
+       '<p>'+esc(localProject.project_name)+' · '+provenance(localProject)+'</p>'+
+       table(['شناسه تعهد','شرح','موعد روز نسبی'],commitments.map(c=>[esc(c.commitment_id),esc(c.label),fa(c.due_day)])));
+   }
+   const proj=ceoProjects.find(p=>p.project_id===projId);
+   if(!proj)return empty('زنجیره تعهد پروژه یافت نشد','پیوند تعهد باید برای همان شناسهٔ پروژه ثبت شود.','DATA REQUIRED');
    return card('زنجیره تعهد و ردیابی پروژه '+esc(proj.project_id), '<div class="app-flow vertical">'+[
      'پروژه: '+proj.project_name,
      'تعهد متأثر: '+(ceoCommitments.find(c=>c.project_id===proj.project_id)?.commitment_type||'تعهد تحویل مشتری'),
@@ -658,7 +680,19 @@ function viewProjects(view){
    return demoNotice+card('Routing / Operations (مسیر عملیات و ایستگاه‌های کاری)',ops.length?table(['عملیات','سفارش','پروژه','توالی','ماشین / مرکز کاری','زمان استاندارد (ساعت)','منشأ'],ops.map(o=>[esc(o.operation_id),esc(o.production_order_id),esc(o.project_id||'—'),esc(o.sequence_no),esc(o.machine_resource_id||'—'),esc(o.planned_hours||o.standard_hours||'—'),provenance(o)])):empty('Routing معتبر دریافت نشده است','ترتیب عملیات، مدت، وابستگی و نیاز منابع باید از منبع تولید تأیید شود.','INTERNAL SOURCE REQUIRED'));
  }
  const ords=f?.project?catalog.orders.filter(o=>o.project_id===f.project):catalog.orders;
- return demoNotice+card('سفارش‌های تولید و واقعیات اجرا',ords.length?table(['سفارش','Cell','پروژه','وضعیت','منشأ'],ords.map(o=>[esc(o.production_order_id),esc(o.component_id),esc(o.project_id),esc(o.status),provenance(o)])):empty('سفارش تولید واقعی متصل نیست','وضعیت سفارش، PCNF/CNF/TECO و مصرف واقعی باید از SAP/منبع معتبر خوانده شود.','INTERNAL SOURCE REQUIRED'))+card('ثبت یادداشت اجرای تمرینی',form('execution',[input('شناسه سفارش دمو','order','PO-P1405-01'),select('وضعیت اجرا','status',[['PCNF','تأیید جزئی'],['CNF','تأیید کامل'],['TECO','بسته فنی']]),input('شرح و مدرک','note','توضیح اجرای تمرینی')],'ثبت یادداشت محلی'));
+ const orderIds=new Set(ords.map(o=>o.production_order_id));
+ const executionNotes=db.events.filter(event=>event.type==='execution').map(event=>{
+   const separator=' · ';
+   const split=event.title?.lastIndexOf(separator)??-1;
+   const order=event.order??(split>=0?event.title.slice(0,split):'');
+   const status=event.status??(split>=0?event.title.slice(split+separator.length):'');
+   return {...event,order,status};
+ }).filter(event=>!f?.project||orderIds.has(event.order));
+ const executionCard=executionNotes.length?card('یادداشت‌های اجرای محلی',table(
+   ['سفارش','وضعیت گزارش‌شده','شرح و مدرک','زمان ثبت','منشأ'],
+   executionNotes.map(event=>[esc(event.order),esc(event.status),esc(event.note),esc(event.createdAt),provenance(event)])
+ )):'';
+ return demoNotice+card('سفارش‌های تولید و واقعیات اجرا',ords.length?table(['سفارش','Cell','پروژه','وضعیت','منشأ'],ords.map(o=>[esc(o.production_order_id),esc(o.component_id),esc(o.project_id),esc(o.status),provenance(o)])):empty('سفارش تولید واقعی متصل نیست','وضعیت سفارش، PCNF/CNF/TECO و مصرف واقعی باید از SAP/منبع معتبر خوانده شود.','INTERNAL SOURCE REQUIRED'))+executionCard+card('ثبت یادداشت اجرای تمرینی',form('execution',[input('شناسه سفارش دمو','order','PO-P1405-01'),select('وضعیت اجرا','status',[['PCNF','تأیید جزئی'],['CNF','تأیید کامل'],['TECO','بسته فنی']]),input('شرح و مدرک','note','توضیح اجرای تمرینی')],'ثبت یادداشت محلی'));
 }
 
 function viewRisk(view){
@@ -674,8 +708,8 @@ function viewRisk(view){
    x.var_billion?fa(x.var_billion)+' میلیارد تومان':'—',
    badge('DEMO_SYNTHETIC','warn'),
    x.project_id?button('ردیابی پروژه','filter-project','secondary','data-project="'+esc(x.project_id)+'"'):button('جزئیات','issue-detail','secondary','data-index="'+i+'"')
- ])):empty('ایشوی عملیاتی تأییدشده موجود نیست','برای تمرین فرم زیر یک ایشوی ساختگی ایجاد کنید؛ آن را به‌عنوان واقعیت PARS تلقی نکنید.','INTERNAL SOURCE REQUIRED'))+card('ثبت ایشوی تمرینی',form('issue',[input('عنوان ایشو','title','مثلاً تأخیر قطعه بحرانی'),select('نوع','type',[['MATERIAL','کمبود مواد'],['MACHINE','افت ظرفیت ماشین'],['MANPOWER','کمبود مهارت/نیرو'],['DEPENDENCY','وابستگی'],['CASH','نقدینگی'],['MULTI_CONSTRAINT','چند قید هم‌زمان']]),select('شدت','severity',[['HIGH','زیاد'],['MEDIUM','متوسط'],['LOW','کم']]),input('موضوع متأثر','object','P-1405 / تعهد / Cell'),input('شرح و شواهد','description','منبع، تاریخ و مدرک', 'text')],'ثبت ایشوی دمو'));
- if(view==='impact')return card('زنجیره اثر و حاشیه سود پروژه‌ها (متصل به شاخص کلان «وضعیت حاشیه پروژه‌ها»)',table(['پروژه','منشأ انحراف','اثر بر آزمون/تولید','اثر بر تعهد مشتری','اثر بر وصول و حاشیه سود','وضعیت (DEMO)'],[
+ ])):empty('ایشوی عملیاتی تأییدشده موجود نیست','برای تمرین فرم زیر یک ایشوی ساختگی ایجاد کنید؛ آن را به‌عنوان واقعیت PARS تلقی نکنید.','INTERNAL SOURCE REQUIRED'))+mang07IssuePanel();
+ if(view==='impact')return mang07RiskPanel()+card('زنجیره اثر و حاشیه سود پروژه‌ها (متصل به شاخص کلان «وضعیت حاشیه پروژه‌ها»)',table(['پروژه','منشأ انحراف','اثر بر آزمون/تولید','اثر بر تعهد مشتری','اثر بر وصول و حاشیه سود','وضعیت (DEMO)'],[
    ['P-1405','تأخیر ۱۸ روزه تأمین قطعه C-117','توقف مونتاژ استاتور و تأخیر آزمون نهایی','ریسک نقض موعد تحویل ۳۲۵ مگاوات','تأخیر وصول ۶۸۰ میلیارد + هزینه تسریع ۱۸۰ م.ت (کاهش حاشیه)',badge('در معرض کاهش حاشیه','bad')],
    ['P-1398','کسری ۶ ساعت ایستگاه آزمون مشترک','تراکم صف آزمون کارخانه‌ای (FAT)','تأثیر هم‌زمان بر تحویل دو مشتری','تأخیر وصول ۵۰۰ میلیارد + هزینه اضافه‌کاری/آزمون بیرونی (کاهش حاشیه)',badge('در معرض کاهش حاشیه','bad')],
    ['P-1412','تغییر طراحی مجموعه ناسل','بازنگری BOM و عملیات مونتاژ','ریسک جابه‌جایی موعد تحویل ۲۸ روزه','نیازمند برآورد هزینه تغییر مهندسی',badge('در دست ارزیابی','warn')]
@@ -684,7 +718,7 @@ function viewRisk(view){
  if(view==='evidence')return card('یکپارچگی و کیفیت شواهد',table(['کنترل','قاعده','وضعیت فعلی'],[['منشأ هر رکورد','طبقه داده، مرجع، زمان و مالک',badge('بخشی در fixture','warn')],['شناسه‌های داخلی','تطبیق با منبع معتبر',badge('متصل نیست','bad')],['ارقام مالی','واحد، دوره، روش، تأیید',badge('NOT YET QUANTIFIED','warn')],['روند زمانی','چند snapshot معتبر',badge('INSUFFICIENT HISTORY','warn')],['پروژه و تعهد','مرجع داخلی و تأیید مالک',badge('INTERNAL SOURCE REQUIRED','warn')]]));
 
  const riskProjs=filterProjectsList(ceoProjects);
- return metrics([
+ return mang07RiskPanel()+metrics([
    stat('ارزش کل در معرض خطر (DEMO)','۳,۲۵۰ میلیارد','۴ پروژه اصلی در معرض خطر (P-1405، P-1398، P-1412، P-1395)','red'),
    stat('ارزش مالی واقعی (ERP)','—','NOT YET QUANTIFIED (نیازمند اتصال مالی)','orange'),
    stat('بحرانی‌ترین پنجره مداخله','۵ روز','پروژه P-1405 (۱,۲۰۰ میلیارد تومان)','purple')
@@ -710,7 +744,7 @@ function scenarioOptions(key){const s=scenarios[key]||scenarios.part;return '<di
 function viewResources(view){
  const res=catalog.resources||[];
  const byType=(t)=>res.filter(r=>r.resource_type===t);
- if(view==='materials')return card('متریال و قطعات بحرانی (شامل C-117 در پروژه P-1405)',byType('MATERIAL').length?table(['قطعه','موجودی آزاد','رزرو','در راه','زمان تأمین','منشأ'],byType('MATERIAL').map(r=>[esc(r.name),esc(r.free_stock??'—'),esc(r.reserved_stock??'—'),esc(r.in_transit_qty??'—'),esc(r.lead_time_days??'—'),provenance(r)])):empty('موجودی واقعی و رزرو متصل نیست','موجودی باید از ledger موجودی، رزرو، رسید و مصرف تطبیق داده شود.','INTERNAL SOURCE REQUIRED'))+card('ثبت ظرفیت/موجودی تمرینی',form('resource',[input('نام منبع','name','قطعه بحرانی دمو'),select('نوع منبع','type',[['MATERIAL','متریال'],['MACHINE','ماشین'],['MANPOWER','مهارت/نیرو'],['METHOD','روش/صلاحیت'],['MONEY','نقدینگی']]),input('مقدار قابل‌دسترس دمو','capacity','0','number'),input('واحد','unit','عدد / ساعت / میلیون تومان')],'ثبت منبع محلی'));
+ if(view==='materials')return card('متریال و قطعات بحرانی (شامل C-117 در پروژه P-1405)',byType('MATERIAL').length?table(['قطعه','موجودی آزاد','رزرو','در راه','زمان تأمین','منشأ'],byType('MATERIAL').map(r=>[esc(r.name),esc(r.free_stock??(r.data_class==='DEMO_SYNTHETIC'&&r.id?.startsWith('LOCAL-RES-')&&r.capacity!=null?fa(r.capacity)+' '+(r.unit||''):'—')),esc(r.reserved_stock??'—'),esc(r.in_transit_qty??'—'),esc(r.lead_time_days??'—'),provenance(r)])):empty('موجودی واقعی و رزرو متصل نیست','موجودی باید از ledger موجودی، رزرو، رسید و مصرف تطبیق داده شود.','INTERNAL SOURCE REQUIRED'))+card('ثبت ظرفیت/موجودی تمرینی',form('resource',[input('نام منبع','name','قطعه بحرانی دمو'),select('نوع منبع','type',[['MATERIAL','متریال'],['MACHINE','ماشین'],['MANPOWER','مهارت/نیرو'],['METHOD','روش/صلاحیت'],['MONEY','نقدینگی']]),input('مقدار قابل‌دسترس دمو','capacity','0','number'),input('واحد','unit','عدد / ساعت / میلیون تومان')],'ثبت منبع محلی'));
  if(view==='machines'||view==='labor')return card(view==='machines'?'ماشین‌آلات و مراکز کاری':'نیروی انسانی و مهارت',((view==='machines'?byType('MACHINE').concat(byType('WORKCENTER'),byType('TEST_STATION')):byType('MANPOWER').concat(byType('SKILL'))).length?table(['منبع','نوع','ظرفیت','واحد','منشأ'],(view==='machines'?byType('MACHINE').concat(byType('WORKCENTER'),byType('TEST_STATION')):byType('MANPOWER').concat(byType('SKILL'))).map(r=>[esc(r.name),esc(r.resource_type||r.type),fa(r.capacity),esc(r.unit),provenance(r)])):empty(view==='machines'?'ظرفیت و تقویم ماشین واقعی متصل نیست':'ماتریس مهارت و ظرفیت نیروی انسانی متصل نیست','ظرفیت مؤثر باید تقویم، توقف، شیفت، مهارت و تعهدات هم‌زمان را در نظر بگیرد.','INTERNAL SOURCE REQUIRED'))+card('افزودن رکورد منبع تمرینی',form('resource',[input('نام منبع','name',view==='machines'?'ایستگاه آزمون دمو':'تیم مهارتی دمو'),select('نوع منبع','type',view==='machines'?[['MACHINE','ماشین'],['WORKCENTER','مرکز کاری'],['TEST_STATION','ایستگاه آزمون']]:[['MANPOWER','نیروی انسانی'],['SKILL','مهارت / صلاحیت']]),input('ظرفیت در هر روز','capacity','8','number'),input('واحد ظرفیت','unit','ساعت / نفر-ساعت')],'ثبت منبع محلی')));
  if(view==='capacity')return metrics([
    stat('محدودیت ظرفیت کلیدی','۱ گلوگاه فعال','ایستگاه آزمون مشترک MACH-TEST-01 (پروژه P-1398)','orange'),
@@ -736,8 +770,8 @@ function viewResources(view){
 }
 
 function viewMemory(view){
- if(view==='outcomes')return card('نتایج واقعی و مشاهده‌شده',db.outcomes.length?table(['پرونده','نتیجه مشاهده‌شده','انحراف','منبع','زمان ثبت'],db.outcomes.map(o=>[esc(o.title),esc(o.actual),esc(o.variance),badge(o.data_class==='INTERNAL_VERIFIED'?'داخلی تأییدشده':'DEMO_SYNTHETIC',o.data_class==='INTERNAL_VERIFIED'?'good':'warn'),esc(o.createdAt)])):empty('نتیجه واقعی ثبت نشده است','ثبت نتیجه دمو مجاز است اما تا ارائه مدرک واقعی، outcome واقعی یا ارزش حفاظت‌شده محسوب نمی‌شود.','OUTCOME REQUIRED'))+card('ثبت نتیجه مشاهده‌شده',form('outcome',[select('تصمیم مرتبط','decision',[['','بدون پیوند تصمیم'],...db.decisions.map((d,i)=>[String(i),d.title+' — '+d.optionName])],false),input('عنوان نتیجه','title','نتیجه تصمیم'),input('مقدار/توضیح مشاهده‌شده','actual','شرح نتیجه واقعی یا دمو'),input('انحراف از انتظار','variance','تفاوت با پیش‌بینی'),input('منبع و مدرک','source','شناسه مدرک / منبع')],'ثبت نتیجه'));
- if(view==='lessons')return card('درس‌آموخته‌ها و قواعد پیشنهادی',db.lessons.length?table(['درس','دامنه','وضعیت','عملیات'],db.lessons.map((l,i)=>[esc(l.text),esc(l.scope),badge(l.status,l.status==='APPROVED'?'good':'warn'),button('تغییر وضعیت','lesson-status','secondary','data-index="'+i+'"')])):empty('درس‌آموخته ثبت نشده است','درس باید به تصمیم و نتیجه مرتبط باشد. قاعده پیشنهادی بدون بازبینی صریح، قانون الزام‌آور نمی‌شود.','NO LESSON YET'))+card('ثبت درس‌آموخته',form('lesson',[input('درس / فرضیه قابل آزمون','text','چه چیزی آموخته شد؟'),input('دامنه کاربرد','scope','کدام محصول / نوع مسئله؟'),select('وضعیت اولیه','status',[['PROPOSED','پیشنهادی'],['REVIEWED','بازبینی‌شده'],['APPROVED','تأییدشده'],['RETIRED','بازنشسته']])],'ثبت درس'));
+ if(view==='outcomes')return mang07MemoryPanel(view)+card('نتایج واقعی و مشاهده‌شده',db.outcomes.length?table(['پرونده','نتیجه مشاهده‌شده','انحراف','منبع','زمان ثبت'],db.outcomes.map(o=>[esc(o.title),esc(o.actual),esc(o.variance),badge(o.data_class==='INTERNAL_VERIFIED'?'داخلی تأییدشده':'DEMO_SYNTHETIC',o.data_class==='INTERNAL_VERIFIED'?'good':'warn'),esc(o.createdAt)])):empty('نتیجه واقعی ثبت نشده است','ثبت نتیجه دمو مجاز است اما تا ارائه مدرک واقعی، outcome واقعی یا ارزش حفاظت‌شده محسوب نمی‌شود.','OUTCOME REQUIRED'))+card('ثبت نتیجه مشاهده‌شده',form('outcome',[select('تصمیم مرتبط','decision',[['','بدون پیوند تصمیم'],...db.decisions.map((d,i)=>[String(i),d.title+' — '+d.optionName])],false),input('عنوان نتیجه','title','نتیجه تصمیم'),input('مقدار/توضیح مشاهده‌شده','actual','شرح نتیجه واقعی یا دمو'),input('انحراف از انتظار','variance','تفاوت با پیش‌بینی'),input('منبع و مدرک','source','شناسه مدرک / منبع')],'ثبت نتیجه'));
+ if(view==='lessons')return mang07MemoryPanel(view)+card('درس‌آموخته‌ها و قواعد پیشنهادی',db.lessons.length?table(['درس','دامنه','وضعیت','عملیات'],db.lessons.map((l,i)=>[esc(l.text),esc(l.scope),badge(l.status,l.status==='APPROVED'?'good':'warn'),button('تغییر وضعیت','lesson-status','secondary','data-index="'+i+'"')])):empty('درس‌آموخته ثبت نشده است','درس باید به تصمیم و نتیجه مرتبط باشد. قاعده پیشنهادی بدون بازبینی صریح، قانون الزام‌آور نمی‌شود.','NO LESSON YET'))+card('ثبت درس‌آموخته',form('lesson',[input('درس / فرضیه قابل آزمون','text','چه چیزی آموخته شد؟'),input('دامنه کاربرد','scope','کدام محصول / نوع مسئله؟'),select('وضعیت اولیه','status',[['PROPOSED','پیشنهادی'],['REVIEWED','بازبینی‌شده'],['APPROVED','تأییدشده'],['RETIRED','بازنشسته']])],'ثبت درس'));
  if(view==='indicators')return metrics([stat('تصمیم‌های ثبت‌شده',fa(db.decisions.length),'سابقه محلی','purple'),stat('نتایج ثبت‌شده',fa(db.outcomes.length),'واقعی بودن نیازمند مدرک','blue'),stat('درس‌آموخته‌ها',fa(db.lessons.length),'تأیید جداگانه لازم است','green'),stat('ارزش حفاظت‌شده','—','NOT YET VERIFIED','orange')])+card('خلاصه شاخص‌های کلان نمای مدیرعامل (DEMO_SYNTHETIC)',table(['شاخص کلان صفحه اصلی','مقدار نمایشی','پروژه‌های مرتبط','صفحه تخصصی مرتبط','عملیات'],[
    ['وضعیت نقدینگی','۲ مرحله در معرض تأخیر (≈ ۱,۱۸۰ میلیارد تومان)','P-1405، P-1398','منابع و ظرفیت ← نقدینگی',button('مشاهده نقدینگی','nav-direct','secondary','data-target-page="resources" data-target-view="cash"')],
    ['ظرفیت کلیدی','۱ محدودیت گلوگاهی (کسری ۶ ساعت ایستگاه آزمون)','P-1398','منابع و ظرفیت ← ظرفیت و بارگذاری',button('مشاهده ظرفیت','nav-direct','secondary','data-target-page="resources" data-target-view="capacity"')],
@@ -889,32 +923,7 @@ function viewIssues(view){
     ])) + card('قاعده حفاظت از ارزش و گاردریل کانبیلیزیشن (Guardrail Cannibalization)', '<div class="app-notice warn"><strong>دستورالعمل اجرایی مدیرعامل:</strong><br>۱. هیچ ادعای پیشرفت فیزیکی کاغذی بدون تأیید سه‌گانه کارگاهی (سند انبار + لوگ برق ماشین + تلمتری جرثقیل) پذیرفته نیست.<br>۲. جابه‌جایی و استقراض قطعه بین پروژه‌ها فقط در صورت تطابق ۱۰۰٪ گواهی متالورژی و ثبت سفارش جایگزین در حاشیه ایمنی LRM پروژه اهداکننده مجاز است.<br>۳. در بحران‌های ملی (قطع برق شبکه)، هزینه‌های دیزل/اضافه‌کاری اجباری در دفترچه فوریت‌های ملی ثبت می‌شود تا عملکرد کارخانه جریمه نشود.</div>');
   }
 
-  if (view === 'register') {
-    return card('ثبت چالش جدید در دفترچه چالش‌های اجرایی (ISSUE)', form('issue', [
-      input('عنوان چالش / انحراف', 'title', 'مثلاً تأخیر قطعه استاتور یا اصطکاک خزانه'),
-      input('شناسه پروژه مرتبط', 'project_id', 'P-1405'),
-      select('دسته گلوگاه ۵M / مالی', 'type', [
-        ['MATERIAL', 'متریال و قطعات (Material)'],
-        ['MACHINE', 'ماشین‌آلات و ایستگاه کاری (Machine)'],
-        ['MANPOWER', 'نیروی انسانی و مهارت (Manpower)'],
-        ['METHOD', 'روش و انحراف طراحی (Method)'],
-        ['TREASURY', 'نقدینگی و اصطکاک خزانه (Money/Treasury)'],
-        ['COPQ', 'کیفیت و هزینه عدم کیفیت (COPQ)']
-      ]),
-      select('درجه شدت چالش', 'severity', [
-        ['CRITICAL', 'بحرانی (CRITICAL)'],
-        ['HIGH', 'زیاد (HIGH)'],
-        ['MEDIUM', 'متوسط (MEDIUM)'],
-        ['LOW', 'کم (LOW)']
-      ]),
-      input('ارزش در معرض خطر VaR (میلیارد تومان)', 'var_billion', '1200', 'number'),
-      input('هزینه ماندگار WIP (میلیون تومان/ماه)', 'wip_cost_million', '36', 'number'),
-      input('هزینه عدم کیفیت COPQ (میلیون تومان)', 'copq_million', '120', 'number'),
-      input('تأخیر تخصیص خزانه (روز)', 'treasury_lag_days', '14', 'number'),
-      input('مهلت تا نقطه غیرقابل بازگشت PNR (روز)', 'days_to_pnr', '5', 'number'),
-      input('شرح چالش و شواهد سه‌گانه', 'description', 'شواهد سند انبار، لوگ برق و تلمتری جرثقیل', 'text')
-    ], 'ثبت چالش در سامانه'));
-  }
+  if (view === 'register') return mang07IssuePanel();
 
   const totalVar = issuesList.reduce((acc, i) => acc + (Number(i.var_billion) || 0), 0);
   const totalWip = issuesList.reduce((acc, i) => acc + (Number(i.wip_cost_million) || 0), 0);
@@ -1013,32 +1022,7 @@ function viewSolutions(view){
     })));
   }
 
-  if (view === 'register') {
-    return card('پیشنهاد راهکار جدید (SOLUTION)', form('solution', [
-      input('عنوان راهکار پیشنهادی', 'title', 'مثلاً تأمین تسریع‌شده یا شیفت اضافه‌کاری'),
-      input('شناسه چالش مرتبط (Issue ID)', 'issue_id', 'ISS-1405-01'),
-      input('شناسه پروژه مرتبط', 'project_id', 'P-1405'),
-      select('نوع استراتژی راهکار', 'strategy_type', [
-        ['EXPEDITE_PROCUREMENT', 'خرید فوری و تسریع تأمین (Expedite)'],
-        ['CAPACITY_OVERTIME', 'افزایش ظرفیت با اضافه‌کاری (Overtime)'],
-        ['EXTERNAL_OUTSOURCING', 'آزمون و پیمانکاری بیرونی (Outsource)'],
-        ['MATERIAL_BORROW', 'استقراض متریال بین پروژه‌ای (Borrow/Cannibalization)'],
-        ['TREASURY_EXPEDITE', 'تسریع تخصیص نقدینگی خزانه (Treasury)'],
-        ['EMERGENCY_OVERTIME', 'فوریت‌های ملی و شیفت اضطراری (Emergency)']
-      ]),
-      select('ارزیابی اولیه امکان‌پذیری', 'feasibility', [
-        ['FEASIBLE', 'امکان‌پذیر و شدنی (FEASIBLE)'],
-        ['CONDITIONAL', 'مشروط به تأیید مدارک/گواهی (CONDITIONAL)'],
-        ['INFEASIBLE', 'ناشدنی (INFEASIBLE)']
-      ]),
-      input('هزینه اجرای راهکار (میلیون تومان)', 'cost_million', '180', 'number'),
-      input('زمان اجرای راهکار (روز)', 'exec_days', '2', 'number'),
-      input('ارزش حفاظت‌شده Protected VaR (میلیارد تومان)', 'protected_var_billion', '1200', 'number'),
-      input('صرفه‌جویی هزینه WIP (میلیون تومان/ماه)', 'saved_wip_million', '36', 'number'),
-      input('مسئول پیشنهادی اجرای راهکار', 'owner', 'مدیر پروژه P-1405 / مدیر کارخانه'),
-      input('ملاحظات عدم کانبیلیزیشن و متالورژی', 'note', 'تطابق ۱۰۰٪ متالورژی و سفارش جایگزین در حاشیه ایمنی LRM', 'text')
-    ], 'ارسال راهکار به صف بررسی و تصویب'));
-  }
+  if (view === 'register') return mang07OptionPanel();
 
   const totalProtected = solutionsList.reduce((acc, s) => acc + (Number(s.protected_var_billion) || 0), 0);
   const approvedCount = solutionsList.filter(s => s.status === 'APPROVED' || s.status === 'EXECUTING').length;
@@ -1067,7 +1051,7 @@ function viewSolutions(view){
   ])) : empty('راهکاری ثبت نشده است', 'از تب «پیشنهاد راهکار جدید» می‌توانید یک راهکار جدید ثبت کنید.'));
 }
 
-function contentFor(key,view){switch(key){case'home':return viewHome(view);case'portfolio':return viewPortfolio(view);case'projects':return viewProjects(view);case'issues':return viewIssues(view);case'solutions':return viewSolutions(view);case'risk':return viewRisk(view);case'interventions':return viewInterventions(view);case'resources':return viewResources(view);case'memory':return viewMemory(view);case'sources':return viewSources(view);case'decisions':return viewDecisions(view);default:return viewHome('overview');}}
+function contentFor(key,view){switch(key){case'home':return viewHome(view);case'portfolio':return viewPortfolio(view);case'projects':return viewProjects(view);case'issues':return (view==='active'||view==='overview'?mang07IssueListPanel():'')+viewIssues(view);case'solutions':return (view==='pipeline'||view==='approved'?mang07CaseList('گردش راهکارهای آموزشی','mang07-options',mang07Cases.filter(item=>item.options.length&&(view!=='approved'||item.decision))):'')+viewSolutions(view);case'risk':return viewRisk(view);case'interventions':return viewInterventions(view);case'resources':return viewResources(view);case'memory':return viewMemory(view);case'sources':return viewSources(view);case'decisions':return (view==='queue'||view==='cases'?mang07CaseList('پرونده‌های آموزشی برای بررسی و تصمیم','mang07-options',mang07Cases.filter(item=>item.options.length)):'')+viewDecisions(view);default:return viewHome('overview');}}
 
 function viewDecisions(view){
  if(view==='council')return card('شورای مدیران و تعهدات تصمیم', '<div class="app-notice">شورا فقط بین گزینه‌های feasible و دارای شواهد کافی انتخاب می‌کند. اگر هیچ گزینه‌ای شدنی نباشد، بحران منابع و تغییر قید باید escalated شود.</div>'+empty('پرونده واقعی آماده شورا وجود ندارد','سناریوهای DEMO فقط برای تمرین‌اند؛ تصمیم در آن‌ها مجوز تخصیص واقعی نیست.','INTERNAL SOURCE REQUIRED'));
@@ -1092,6 +1076,7 @@ function render(key,view){
 function appOpenPage(key,view,preserveFilter=false){
  if(!KEYS.includes(key))key='home';
  if(!preserveFilter)db.activeFilter=null;
+ if(key!=='portfolio'||currentPage!=='portfolio'||!preserveFilter)assignmentFamily=null;
  currentPage=key;currentView=view||(key==='home'?'overview':(SUBS[key]||[])[0]?.[0]);
  $$('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));
  if(key==='home'){
@@ -1123,78 +1108,607 @@ function rerender(){const c=$('#entityContent');if(c&&c.dataset.appPage)render(c
 function go(key,view,preserveFilter=false){appOpenPage(key,view,preserveFilter);}
 function notify(title,detail){const el=document.createElement('div');el.className='app-toast';el.innerHTML='<strong>'+esc(title)+'</strong><span>'+esc(detail)+'</span>';document.body.appendChild(el);setTimeout(()=>el.remove(),2800);}
 
+function mang07Numeric(value){
+ if(typeof value==='number')return Number.isFinite(value)?value:null;
+ if(typeof value==='string'){
+   const text=value.trim().replace(/[۰-۹٠-٩]/g,d=>String(d.charCodeAt(0)-(d<='٩'?0x660:0x6f0))).replace(/٫/g,'.').replace(/−/g,'-');
+   if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text))return null;
+   const number=Number(text);
+   return Number.isFinite(number)?number:null;
+ }
+ if(Array.isArray(value)&&value.length===2){
+   const [min,max]=value.map(mang07Numeric);
+   if(typeof min==='number'&&typeof max==='number'&&min<=max)return min===max?min:[min,max];
+ }
+ return null;
+}
+
+function mang07Bounds(value){
+ const number=mang07Numeric(value);
+ return number===null?null:Array.isArray(number)?number:[number,number];
+}
+
+function mang07Delta(next,prior,{paired=false}={}){
+ const n=mang07Bounds(next), p=mang07Bounds(prior);
+ if(!n||!p)return null;
+ if(!paired)return mang07Numeric([n[0]-p[1],n[1]-p[0]]);
+ const first=n[0]-p[0], last=n[1]-p[1];
+ return mang07Numeric([Math.min(first,last),Math.max(first,last)]);
+}
+
+function mang07Add(first,second){
+ const a=mang07Bounds(first), b=mang07Bounds(second);
+ return a&&b?mang07Numeric([a[0]+b[0],a[1]+b[1]]):null;
+}
+
+function mang07Challenge(row){
+ return mang07Delta(row.noAction,row.baseline,{paired:row.paired===true});
+}
+
+function mang07Observed(approvedValue,observedValue,paired=false){
+ return mang07Delta(observedValue,approvedValue,{paired});
+}
+
+function mang07MoneyRate(row,recovered){
+ const amount=mang07Numeric(row.amount), rate=mang07Numeric(row.rate), days=mang07Bounds(recovered);
+ if(typeof amount!=='number'||amount<0||typeof rate!=='number'||rate<0||!days)return null;
+ return mang07Numeric(days.map(day=>amount*rate/100*day/365));
+}
+
+function mang07Limit(value,limit){
+ const estimate=mang07Bounds(value), ceiling=mang07Bounds(limit);
+ if(!estimate||!ceiling)return 'pending';
+ if(estimate[0]>ceiling[1])return 'rejected';
+ if(estimate[1]>ceiling[0])return 'pending';
+ return 'verified';
+}
+
+function mang07GateResult(gate){
+ const status=gate?.status, reference=String(gate?.reference??'').trim(), reviewer=String(gate?.reviewer??'').trim();
+ if(status==='rejected')return {status,reason:'قید رد شده است.'};
+ if(status==='na'&&String(gate?.reason||reference).trim()&&reviewer)return {status,reason:'نامرتبط، طبق دلیل و بررسی ثبت‌شده.'};
+ if(status==='verified'&&reference&&reviewer)return {status,reason:'مرجع و مسئول بررسی ثبت شده‌اند.'};
+ return {status:'pending',reason:'نتیجه، مرجع یا مسئول بررسی کامل نیست.'};
+}
+
+function mang07ApplyLimit(gate,status,reason){
+ if(status==='rejected'||(status==='pending'&&gate.status!=='rejected'))return {status,reason};
+ return gate;
+}
+
+function mang07Compare(caseRecord,option){
+ const effectRows=caseRecord.effects??[];
+ const identities=effectRows.map(row=>JSON.stringify([row.project||'',row.order||row.orderId||'',row.type,row.commitment||row.commitmentId||row.commitment_id||row.reference||row.id]));
+ const duplicates=new Set(identities.filter((id,index)=>identities.indexOf(id)!==index));
+ const cost=mang07Numeric(option.cost), budget=mang07Numeric(option.budget);
+ const gates=Object.fromEntries(['capacity','quality','budget','deadline','crossOrder'].map(key=>[key,mang07GateResult(option.gates?.[key])]));
+ const rows=effectRows.map((row,index)=>{
+   const baseline=mang07Numeric(row.baseline), noAction=mang07Numeric(row.noAction), withOption=mang07Numeric(option.effects?.[row.id]);
+   const comparable=(row.type==='cost'&&row.unit==='million-toman')||(['completion','delivery','collection'].includes(row.type)&&row.unit==='day');
+   const mode={paired:row.paired===true};
+   const challenge=comparable?mang07Challenge(row):null;
+   const recovered=comparable?mang07Delta(noAction,withOption,mode):null;
+   const remaining=comparable?mang07Delta(withOption,baseline,mode):null;
+   const deadline=mang07Numeric(row.deadline);
+   const deadlineStatus=row.type!=='cost'&&row.deadline!==null&&row.deadline!==undefined&&row.deadline!==''
+     ?mang07Limit(comparable?withOption:null,deadline):null;
+   const duplicate=duplicates.has(identities[index]);
+   const benefit=duplicate?null:row.type==='collection'?mang07MoneyRate(row,recovered):row.type==='cost'?recovered:null;
+   return {row,baseline,noAction,withOption,challenge,recovered,remaining,benefit,deadline,deadlineStatus,duplicate};
+ });
+ for(const effect of rows){
+   if(effect.deadlineStatus==='rejected')gates.deadline=mang07ApplyLimit(gates.deadline,'rejected','پیش‌بینی گزینه از موعد سخت عبور می‌کند.');
+   if(effect.deadlineStatus==='pending')gates.deadline=mang07ApplyLimit(gates.deadline,'pending','رعایت موعد سخت با پیش‌بینی موجود قابل تأیید نیست.');
+ }
+ const comparableCost=mang07Bounds(cost)?.[0]>=0?cost:null;
+ const comparableBudget=mang07Bounds(budget)?.[0]>=0?budget:null;
+ if(gates.budget.status!=='na'||(comparableCost!==null&&comparableBudget!==null)){
+   const budgetStatus=mang07Limit(comparableCost,comparableBudget);
+   gates.budget=mang07ApplyLimit(gates.budget,budgetStatus,budgetStatus==='rejected'?'هزینه اقدام از سقف بودجه بیشتر است.':'رعایت سقف بودجه با داده موجود قابل تأیید نیست.');
+ }
+ if(duplicates.size)gates.crossOrder=mang07ApplyLimit(gates.crossOrder,'pending','ردیف‌های تکراری اثر باید پیش از تصویب بررسی شوند.');
+ const stale=option.effectVersions&&rows.some(({row})=>option.effectVersions[row.id]!==1+(row.versions?.length||0));
+ if(stale||effectRows.some(row=>row.needsReview))gates.crossOrder=mang07ApplyLimit(gates.crossOrder,'pending','نسخهٔ اثر چالش تغییر کرده است. پیش‌بینی و قیود راهکار را دوباره بررسی و ذخیره کنید.');
+ const costTerms=rows.filter(effect=>effect.row.type==='cost');
+ const timingTerms=rows.filter(effect=>effect.row.type==='collection');
+ const sumKnown=values=>{
+   const known=values.filter(value=>value!==null);
+   return known.length?known.reduce(mang07Add,0):null;
+ };
+ const completionSavings=sumKnown(costTerms.map(effect=>effect.benefit));
+ const collectionBenefit=sumKnown(timingTerms.map(effect=>effect.benefit));
+ const actionCost=comparableCost;
+ const net=sumKnown([completionSavings,collectionBenefit,mang07Delta(0,actionCost)]);
+ const incomplete=!costTerms.length||rows.some(effect=>effect.recovered===null||effect.duplicate)||
+   costTerms.some(effect=>effect.benefit===null)||timingTerms.some(effect=>effect.benefit===null)||actionCost===null;
+ const feasible=rows.length>0&&Object.values(gates).every(gate=>gate.status==='verified'||gate.status==='na');
+ return {rows,net,incomplete,gates,feasible,stale:Boolean(stale),completionSavings,collectionBenefit,actionCost,
+   methodology:'تفاوت هزینه تکمیل بدون اقدام و با گزینه، منهای هزینه مستقیم اقدام فقط یک‌بار، به‌علاوه منفعت زمانی وصول به نسبت مبلغ × نرخ سالانه × روز بازیافته ÷ ۳۶۵.'};
+}
+
+const mang07Key = 'mang07-case-v1';
+const mang07Type = {completion:'تکمیل', delivery:'تحویل', collection:'وصول', cost:'هزینه تکمیل'};
+const mang07GateLabels = {capacity:'ظرفیت', quality:'کیفیت و پذیرش', budget:'بودجه', deadline:'موعد تعهد', crossOrder:'اثر بر سفارش‌های دیگر'};
+const mang07GateState = {pending:'در انتظار بررسی', verified:'تأیید', rejected:'رد', na:'نامرتبط'};
+let mang07Cases = [];
+let mang07CaseId = '';
+let mang07OptionId = '';
+let mang07Stored = null;
+try {
+  mang07Stored = localStorage.getItem(mang07Key);
+  const stored = JSON.parse(mang07Stored || '[]');
+  if (Array.isArray(stored)) mang07Cases = stored;
+} catch {}
+function mang07Save() {
+  if (localStorage.getItem(mang07Key)!==mang07Stored) throw Error('پرونده در تب دیگری تغییر کرده است. نسخهٔ تازه بازخوانی شد؛ ورودی را دوباره بررسی کنید.');
+  const json = JSON.stringify(mang07Cases);
+  localStorage.setItem(mang07Key,json);
+  mang07Stored = json;
+}
+function mang07Id() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, byte=>byte.toString(16).padStart(2,'0')).join('');
+  return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+}
+function mang07Value(value) {
+  if (value == null) return 'نامشخص';
+  return Array.isArray(value) ? value.map(fa).join(' تا ') : fa(value);
+}
+function mang07Money(value) {
+  if(value==null)return 'نامشخص';
+  const format = number=>number.toLocaleString('fa-IR',{maximumFractionDigits:2});
+  return Array.isArray(value)?value.map(format).join(' تا '):format(value);
+}
+function mang07Text(value) {
+  return Array.isArray(value) ? value.join('..') : value ?? '';
+}
+function mang07Parse(value) {
+  const text = String(value ?? '').trim().replace(/[۰-۹]/g, digit => '۰۱۲۳۴۵۶۷۸۹'.indexOf(digit))
+    .replace(/[٠-٩]/g, digit => '٠١٢٣٤٥٦٧٨٩'.indexOf(digit)).replace(/٫/g,'.').replace(/٬/g,'');
+  if (!text) return null;
+  const values = text.split('..').map(part => {
+    if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(part.trim())) throw Error('عدد یا بازهٔ معتبر وارد کنید. نمونهٔ قالب بازه: ۲..۴');
+    return Number(part);
+  });
+  if (values.some(value => !Number.isFinite(value)) || values.length > 2 || (values.length === 2 && values[0] > values[1])) throw Error('بازه معتبر نیست.');
+  return values.length === 1 ? values[0] : values;
+}
+function mang07Amount(value, max = Infinity) {
+  const number = mang07Parse(value);
+  if (number !== null && (typeof number !== 'number' || number < 0 || number > max)) throw Error('برای مبلغ، نرخ یا روز مقدار معتبر وارد کنید.');
+  return number;
+}
+function mang07Nonnegative(value) {
+  const parsed = mang07Parse(value);
+  if ((Array.isArray(parsed) ? parsed[0] : parsed) < 0) throw Error('مقدار پیش‌بینی باید نامنفی باشد.');
+  return parsed;
+}
+function mang07Resources() {
+  const resources = new Map();
+  for (const op of catalog.operations) {
+    if (!op.machine_resource_id) continue;
+    const id = op.machine_resource_id.split(' (')[0];
+    resources.set(id, [id, op.machine_resource_id]);
+  }
+  return resources;
+}
+function mang07Order(id) {
+  return catalog.orders.find(order => order.production_order_id === id);
+}
+function mang07References(order, type) {
+  if (type === 'completion' || type === 'cost') return [order.production_order_id];
+  if (type === 'collection') return [...catalog.commitments.filter(ref => ref.project_id === order.project_id && ref.type === 'MILESTONE_PAYMENT').map(ref => ref.commitment_id),
+    ...ceoCashStages.filter(ref => ref.project_id === order.project_id).map(ref => ref.stage_id)];
+  return catalog.commitments.filter(ref => ref.project_id === order.project_id && ['CUSTOMER_DELIVERY','SERVICE_OVERHAUL'].includes(ref.type)).map(ref => ref.commitment_id);
+}
+function mang07Label(label, name, value = '', required = false) {
+  return '<label class="app-field"><span>'+label+'</span><input name="'+esc(name)+'" value="'+esc(value)+'"'+(required?' required':'')+'></label>';
+}
+function mang07Area(label, name, value = '', required = false) {
+  return '<label class="app-field"><span>'+label+'</span><textarea name="'+esc(name)+'"'+(required?' required':'')+'>'+esc(value)+'</textarea></label>';
+}
+function mang07Select(label, name, options, value = '', required = false) {
+  return '<label class="app-field"><span>'+label+'</span><select name="'+esc(name)+'"'+(required?' required':'')+'>'+options.map(([id,text])=>'<option value="'+esc(id)+'"'+(id===value?' selected':'')+'>'+esc(text)+'</option>').join('')+'</select></label>';
+}
+function mang07Hidden(name, value) {
+  return '<input type="hidden" name="'+esc(name)+'" value="'+esc(value)+'">';
+}
+function mang07Notice() {
+  return '<div class="app-notice warn pvpt-case-notice"><strong>محیط آموزشی دمو</strong> · داده‌های این پرونده‌ها به شاخص‌های صفحهٔ اصلی منتقل نمی‌شوند. نقش‌ها در این دمو نمایشی‌اند.</div>';
+}
+function mang07Open(label, action, id, extra = '') {
+  return button(label, action, 'secondary', 'data-case-id="'+esc(id)+'" '+extra);
+}
+function mang07CaseList(title, action, source = mang07Cases) {
+  return card(title, table(['پرونده','منبع کلیدی','وضعیت','عملیات'],source.map(item=>[
+    esc(item.title),esc(item.resource),esc(mang07Status(item)),mang07Open('باز کردن پرونده',action,item.id)
+  ])));
+}
+function mang07Status(item) {
+  return ({approved:'مصوب، شروع نشده',started:'در حال اجرا',completed:'نتیجه ثبت شد'})[item.decision?.status] || 'در دست بررسی';
+}
+function mang07IssuePanel() {
+  const chosen = mang07Cases.find(item => item.id === mang07CaseId);
+  const resources = [...mang07Resources().values()];
+  const orders = '<label class="app-field"><span>سفارش‌های مرتبط (انتخاب چندگانه، اختیاری)</span><select name="orders" multiple size="4">'+catalog.orders.map(order=>'<option value="'+esc(order.production_order_id)+'">'+esc(order.production_order_id+' · '+order.project_id)+'</option>').join('')+'</select></label>';
+  return '<div class="pvpt-case-workbench">'+mang07Notice()+card('ثبت چالش جدید',form('mang07-case',[
+    mang07Label('عنوان چالش','title','',true),mang07Select('منبع کلیدی','resource',[['','انتخاب منبع'],...resources],'',true),
+    mang07Area('شرح چالش','description','',true),orders,input('زمان رخداد (اختیاری)','occurredAt','','datetime-local',false),
+    mang07Label('مدت توقف بر حسب ساعت (اختیاری)','downtime'),mang07Label('ثبت‌کننده (اختیاری)','registrant'),mang07Area('شاهد یا مرجع سناریو (اختیاری)','evidence')
+  ],'ثبت چالش'))+(chosen?mang07ImpactPanel(chosen):'')+mang07CaseList('پرونده‌های چالش آموزشی','mang07-case-open')+'</div>';
+}
+function mang07EffectRows(item) {
+  return item.effects.map(row=> {
+    const detail = '<details><summary>نسخه‌ها و شواهد ('+fa(row.versions.length + 1)+')</summary>'+[row,...row.versions.slice().reverse()].map(version=>'<p>'+esc(version.at)+' · مبنا '+esc(mang07Value(version.baseline))+' · بدون اقدام '+esc(mang07Value(version.noAction))+' · موعد سخت '+esc(mang07Value(version.deadline))+' · '+esc(version.timeOrigin)+' · '+esc(version.origin)+' · '+esc(version.reviewer)+'</p>').join('')+'</details>';
+    const edit = (item.decision?'':mang07Open('ویرایش','mang07-edit-effect',item.id,'data-effect-id="'+esc(row.id)+'"'));
+    return '<tr data-effect-id="'+esc(row.id)+'" data-order="'+esc(row.order)+'" data-effect-type="'+esc(row.type)+'"><td>'+esc(row.order)+(edit?'<br>'+edit:'')+'</td><td>'+esc(mang07Type[row.type])+'<br><code>'+esc(row.reference)+'</code></td><td>'+esc(mang07Value(row.baseline))+'</td><td>'+esc(mang07Value(row.noAction))+'</td><td>'+(row.needsReview?'نیازمند بازبینی':esc(mang07Value(mang07Challenge(row))))+'</td><td>'+esc(mang07Value(row.deadline))+'</td><td>'+detail+'</td></tr>';
+  }).join('');
+}
+let mang07EffectId = '';
+function mang07ImpactPanel(item) {
+  const row = item.effects.find(effect => effect.id === mang07EffectId);
+  const ids = item.orders.length ? item.orders : catalog.orders.map(order => order.production_order_id);
+  const orders = ids.map(id => [id,id]);
+  const model = card('اثر چالش · '+esc(item.title),'<p>منبع: '+esc(item.resource)+' · وضعیت: '+esc(mang07Status(item))+' · مهلت مداخله: '+esc(mang07Value(item.interventionDay))+'</p><p>منشأ پروژه: '+esc(item.projectOrigin)+' · منشأ سناریو: '+esc(item.evidence || 'نامشخص، ورودی آموزشی کاربر')+'</p><div class="app-table-wrap"><table class="app-table pvpt-case-effects"><thead><tr><th>سفارش</th><th>تعهد</th><th>مبنا</th><th>بدون اقدام</th><th>تغییر چالش</th><th>موعد سخت</th><th>نسخه‌ها</th></tr></thead><tbody>'+mang07EffectRows(item)+'</tbody></table></div>'+mang07Open('مقایسه و پیشنهاد راهکار','mang07-options',item.id));
+  if (item.decision) return model;
+  const history = (item.conditionHistory||[]).map(record=>'<p>'+esc(record.at)+' · '+esc(mang07Value(record.downtime))+' ساعت · '+esc(record.evidence)+'</p>').join('');
+  return model+'<details><summary>فرض توقف، شواهد و تاریخچه</summary><p>شرح: '+esc(item.description)+' · توقف کنونی: '+esc(mang07Value(item.downtime))+' ساعت</p>'+history+form('mang07-condition',[
+    mang07Hidden('caseId',item.id),mang07Label('مدت توقف بازبینی‌شده (ساعت)','downtime',mang07Text(item.downtime)),mang07Label('دلیل یا شاهد تغییر فرض','evidence','',true)
+  ],'به‌روزرسانی فرض توقف')+'</details>'+card(row?'ویرایش برآورد اثر':'افزودن اثر بر تعهد',form('mang07-effect',[
+    mang07Hidden('caseId',item.id),mang07Hidden('rowId',row?.id ?? ''),
+    mang07Select('سفارش تعهد','order',[['','انتخاب سفارش'],...orders],row?.order,true),
+    mang07Select('نوع تعهد','type',[['','انتخاب نوع'],...Object.entries(mang07Type)],row?.type,true),
+    mang07Select('شناسهٔ مرجع تعهد','reference',[['','انتخاب مرجع موجود'],...(row?[[row.reference,row.reference]]:[])],row?.reference,true),
+    mang07Label('مبدأ روز نسبی (برای اثر زمانی)','timeOrigin',row?.timeOrigin),
+    mang07Label('پیش‌بینی پیش از رخداد','baseline',mang07Text(row?.baseline)),
+    mang07Label('پیش‌بینی بدون اقدام','noAction',mang07Text(row?.noAction)),
+    mang07Label('موعد سخت تعهد (روز نسبی، در صورت شواهد)','deadline',mang07Text(row?.deadline)),
+    mang07Label('مبلغ وصول (میلیون تومان، اختیاری)','amount',mang07Text(row?.amount)),
+    mang07Label('نرخ سالانهٔ آموزشی (درصد، اختیاری)','rate',mang07Text(row?.rate)),
+    mang07Label('شاهد یا فرض صریح','origin',row?.origin,true),mang07Label('مسئول بررسی','reviewer',row?.reviewer,true),
+    '<label class="app-field"><span>بازه‌ها دارای سناریوهای جفت‌شده هستند</span><input name="paired" type="checkbox"'+(row?.paired?' checked':'')+'></label>'
+  ],'ذخیره نسخهٔ اثر')+(row?mang07Open('افزودن اثر دیگر','mang07-edit-effect',item.id):''));
+}
+function mang07IssueListPanel() {
+  return mang07Cases.length ? mang07CaseList('پرونده‌های چالش آموزشی','mang07-case-open') : '';
+}
+function mang07OptionRowOptions(item, option) {
+  return item.effects.map(row=>mang07Label(row.order+' · '+mang07Type[row.type]+(row.type==='cost'?' (میلیون تومان، پیش از هزینه اقدام)':' (روز نسبی)'), 'effect-'+row.id, mang07Text(option?.effects[row.id])));
+}
+function mang07OptionPanel() {
+  const item = mang07Cases.find(record => record.id === mang07CaseId);
+  if (!item) return mang07Notice()+mang07CaseList('انتخاب پرونده برای پیشنهاد و مقایسهٔ راهکار','mang07-options')+button('ثبت چالش تازه','mang07-new-case');
+  const option = item.options.find(candidate => candidate.id === mang07OptionId);
+  const detail = item.options.map(candidate => mang07ComparePanel(item,candidate)).join('');
+  const list = mang07Notice()+card('راهکارهای پرونده · '+esc(item.title),'<p>شناسهٔ پرونده: <code>'+esc(item.id)+'</code> · '+esc(mang07Status(item))+'</p>'+mang07Open('بازگشت به اثر چالش','mang07-case-open',item.id));
+  if (item.decision) return list+detail;
+  return list+detail+card(option?'بازبینی پیش‌نویس راهکار':'ثبت پیش‌نویس راهکار',form('mang07-option',[
+    mang07Hidden('caseId',item.id),mang07Hidden('optionId',option?.id ?? ''),
+    mang07Label('عنوان گزینه','title',option?.title,true),mang07Area('شرح اقدام','description',option?.description),mang07Label('پیشنهاددهنده','proposer',option?.proposer),mang07Label('مسئول اجرا','owner',option?.owner),
+    mang07Label('روز شروع','start',mang07Text(option?.start)),mang07Label('مدت اجرا (روز یا بازه)','duration',mang07Text(option?.duration)),
+    mang07Select('منبع اجرا','resource',[['','نامشخص'],...mang07Resources().values(),...catalog.suppliers.map(source=>[source.supplier_id,source.name])],option?.resource),
+    mang07Label('مقدار ظرفیت یا نوبت اجرا به همراه واحد','quantity',option?.quantity),mang07Label('مدرک رزرو','reservation',option?.reservation),
+    mang07Label('هزینهٔ مستقیم اقدام (میلیون تومان)','cost',mang07Text(option?.cost)),mang07Label('سقف بودجه (میلیون تومان)','budget',mang07Text(option?.budget)),
+    ...mang07OptionRowOptions(item,option),
+    ...Object.entries(mang07GateLabels).flatMap(([key,label])=>[
+      mang07Select(label,'gate-'+key,Object.entries(mang07GateState),option?.gates[key]?.status ?? 'pending'),
+      mang07Label('مرجع یا علت نامرتبط بودن · '+label,'ref-'+key,option?.gates[key]?.reference),
+      mang07Label('مسئول بررسی · '+label,'reviewer-'+key,option?.gates[key]?.reviewer)
+    ])
+  ],'ذخیره پیش‌نویس')+(option?mang07Open('پیش‌نویس گزینهٔ دیگر','mang07-edit-option',item.id):''));
+}
+function mang07Evaluate(item, option) {
+  const result = mang07Compare(item,option);
+  const coveredOrders = item.orders.length ? item.orders : [...new Set(item.effects.map(row=>row.order))];
+  const missingOrderImpact = coveredOrders.some(id=>!result.rows.some(entry=>entry.row.order===id && entry.row.type==='delivery' && entry.withOption!==null));
+  const ready = option.description && option.owner && option.start!==null && option.duration!==null && option.resource && option.quantity && option.reservation;
+  if (missingOrderImpact) {
+    result.gates.crossOrder = mang07ApplyLimit(result.gates.crossOrder,'pending','برای تحویل هر سفارش مرتبط یک پیش‌بینی با گزینه ثبت کنید.');
+    result.feasible = false;
+  }
+  if (!ready) {
+    result.gates.capacity = mang07ApplyLimit(result.gates.capacity,'pending','شرح اقدام، مسئول، زمان، منبع، مقدار و مدرک رزرو را کامل کنید.');
+    result.feasible = false;
+  }
+  return result;
+}
+function mang07ComparePanel(item, option) {
+  const result = mang07Evaluate(item,option);
+  const decision = item.decision;
+  const selected = decision?.optionId === option.id;
+  const report = '<p>'+esc(result.methodology)+'</p><p>تغییر هزینه تکمیل پیش از هزینهٔ اقدام: '+esc(mang07Value(result.completionSavings))+' · هزینهٔ اقدام: '+esc(mang07Value(result.actionCost))+' · منفعت زمانی وصول: '+esc(mang07Money(result.collectionBenefit))+' میلیون تومان</p><p>خالص اقلام عدددار: <b data-option-net>'+esc(mang07Money(result.net))+'</b> میلیون تومان · '+(result.incomplete?'پوشش ناقص داده‌ها':'پوشش کامل داده‌های ثبت‌شده')+'</p>'+
+    table(['سفارش / تعهد','واحد','مبنا','بدون اقدام','با گزینه','بازیافته / تغییر','مانده نسبت به مبنا'],result.rows.map(entry=>[
+      esc(entry.row.order+' · '+mang07Type[entry.row.type]),entry.row.type==='cost'?'میلیون تومان':'روز',...['baseline','noAction','withOption','recovered','remaining'].map(key=>esc(mang07Value(entry[key])))
+    ]))+table(['قید','وضعیت','دلیل یا شاهد'],Object.entries(result.gates).map(([key,gate])=>[esc(mang07GateLabels[key]??key),esc(mang07GateState[gate.status]??gate.status),esc(gate.reason||option.gates[key]?.reference||'')]));
+  let actions = '';
+  if (!decision) {
+    actions = mang07Open('ویرایش راهکار','mang07-edit-option',item.id,'data-option-id="'+esc(option.id)+'"');
+    if (result.feasible && !option.rejectedAt) actions += form('mang07-decision',[
+      mang07Hidden('caseId',item.id),mang07Hidden('optionId',option.id),mang07Label('تصمیم‌گیر (نقش مدیر ارشد در دمو)','approver','',true),mang07Area('دلیل تصمیم','reason','',true),
+      mang07Label('مسئول اجرا','owner',option.owner,true),mang07Label('مهلت اجرا (روز نسبی)','due','',true)
+    ],'تصویب راهکار');
+    if (!option.rejectedAt) actions += form('mang07-reject',[mang07Hidden('caseId',item.id),mang07Hidden('optionId',option.id),mang07Label('دلیل رد','reason','',true)],'رد راهکار');
+    else actions += '<p>رد شده: '+esc(option.rejectedReason)+'</p>';
+  }
+  if (selected) {
+    actions = '<p>'+esc(mang07Status(item))+' · تصمیم '+esc(decision.id)+' · تصمیم‌گیر '+esc(decision.approver)+' · دلیل '+esc(decision.reason)+' · مسئول '+esc(decision.owner)+' · مهلت '+esc(mang07Value(decision.due))+'</p>';
+    if (decision.status === 'approved') actions += mang07Open('ثبت شروع اجرا','mang07-start',item.id);
+    if (decision.status !== 'approved') actions += mang07Open('مشاهده یا ثبت نتیجه','mang07-open-outcome',item.id);
+  }
+  return '<div class="pvpt-case-option" data-option-id="'+esc(option.id)+'" data-feasible="'+result.feasible+'">'+card(esc(option.title),report+actions)+'</div>';
+}
+function mang07SaveAndRender() {
+  try {
+    mang07Save();
+  } catch (error) {
+    try {
+      mang07Stored = localStorage.getItem(mang07Key);
+      const current = JSON.parse(mang07Stored || '[]');
+      mang07Cases = Array.isArray(current)?current:[];
+    } catch { mang07Cases = []; }
+    rerender();
+    throw Error(error.name==='Error'?error.message:'ذخیره‌سازی محلی انجام نشد. تغییر ثبت نشده است.');
+  }
+  rerender();
+}
+function mang07CaseRequired(v) {
+  const item = mang07Cases.find(record => record.id === v.caseId);
+  if (!item) throw Error('پرونده معتبر نیست.');
+  return item;
+}
+function mang07Submit(f, v) {
+  if (mang07CloseForm(f,v)) return;
+  const stamp = new Date().toISOString();
+  const type = f.dataset.form;
+  if (type === 'mang07-case') {
+    const orders = [...new Set(new FormData(f).getAll('orders'))];
+    if (!v.title.trim() || !v.description.trim() || !mang07Resources().has(v.resource) || orders.some(id=>!mang07Order(id))) throw Error('عنوان، شرح، منبع کلیدی و سفارش‌های معتبر را بررسی کنید.');
+    const item = {id:mang07Id(),title:v.title.trim(),resource:v.resource,description:v.description.trim(),orders,
+      occurredAt:v.occurredAt, downtime:mang07Amount(v.downtime),evidence:v.evidence.trim(),registrant:v.registrant.trim(),
+      projectOrigin:orders.length?orders.map(id=>id+': '+(mang07Order(id).data_class||'UNKNOWN')).join('، '):'نامشخص',
+      at:stamp,effects:[],options:[],decision:null,outcomes:[],lessons:[],dataClass:'DEMO_SYNTHETIC'};
+    mang07Cases.unshift(item);
+    mang07CaseId = item.id;
+    mang07EffectId = '';
+    mang07SaveAndRender();
+    return;
+  }
+  const item = mang07CaseRequired(v);
+  if (item.decision) throw Error('نسخهٔ مصوب قابل تغییر نیست.');
+  if (type === 'mang07-condition') {
+    const downtime = mang07Amount(v.downtime);
+    const evidence = v.evidence.trim();
+    if (!evidence || downtime===item.downtime) throw Error('مدت توقف جدید و دلیل تغییر را مشخص کنید.');
+    (item.conditionHistory??=[]).push({downtime:item.downtime,evidence,at:stamp});
+    item.downtime = downtime;
+    for (const row of item.effects) row.needsReview = true;
+  } else if (type === 'mang07-effect') {
+    const order = mang07Order(v.order);
+    const previous = item.effects.find(row=>row.id===v.rowId);
+    if (!order || (item.orders.length && !item.orders.includes(v.order)) || !Object.hasOwn(mang07Type,v.type) || !mang07References(order,v.type).includes(v.reference) || !v.origin.trim() || !v.reviewer.trim()) throw Error('سفارش، شناسه تعهد، شاهد و مسئول بررسی باید معتبر باشند.');
+    if (v.rowId && (!previous || previous.order!==v.order || previous.type!==v.type || previous.reference!==v.reference)) throw Error('شناسهٔ تعهد در نسخه‌بندی قابل تغییر نیست.');
+    if (item.effects.some(row=>row!==previous && row.order===v.order && row.type===v.type && row.reference===v.reference)) throw Error('این اثر ثبت شده است. نسخهٔ همان ردیف را ویرایش کنید.');
+    if ((v.type==='cost' || v.type==='completion') && item.effects.some(row=>row!==previous && row.order===v.order && row.type===v.type)) throw Error('برای هر سفارش یک برآورد تکمیل و یک برآورد هزینهٔ تکمیل ثبت کنید.');
+    const timeOrigin = v.timeOrigin.trim();
+    if (v.type!=='cost' && (!timeOrigin || item.effects.some(row=>row!==previous && row.type!=='cost' && row.timeOrigin!==timeOrigin))) throw Error('مبدأ روز نسبی باید برای اثرهای زمانی پرونده یکسان و مشخص باشد.');
+    if (v.type==='cost' && v.deadline.trim()) throw Error('موعد سخت را در ردیف تعهد زمانی ثبت کنید.');
+    if (v.type!=='collection' && (v.amount.trim() || v.rate.trim())) throw Error('مبلغ و نرخ فقط برای اثر وصول تعریف می‌شوند.');
+    const row = {id:previous?.id??mang07Id(),order:v.order,project:order.project_id,reference:v.reference,type:v.type,
+      unit:v.type==='cost'?'million-toman':'day',timeOrigin,baseline:mang07Nonnegative(v.baseline),noAction:mang07Nonnegative(v.noAction),
+      deadline:mang07Amount(v.deadline),amount:mang07Amount(v.amount),rate:mang07Amount(v.rate),origin:v.origin.trim(), reviewer:v.reviewer.trim(),
+      paired:Boolean(v.paired),at:stamp,versions:previous?[...previous.versions,{...previous,versions:undefined}]:[]};
+    if (previous) item.effects[item.effects.indexOf(previous)] = row;
+    else item.effects.push(row);
+    mang07EffectId = '';
+  } else if (type === 'mang07-option') {
+    const previous = item.options.find(option=>option.id===v.optionId);
+    if ((v.optionId && !previous) || !v.title.trim()) throw Error('عنوان یا شناسهٔ راهکار معتبر نیست.');
+    const gates = Object.fromEntries(Object.keys(mang07GateLabels).map(key=>{
+      const status = v['gate-'+key];
+      const reference = v['ref-'+key].trim(), reviewer = v['reviewer-'+key].trim();
+      if (!Object.hasOwn(mang07GateState,status) || (status!=='pending' && (!reference || !reviewer))) throw Error('برای نتیجهٔ بررسی هر قید، مرجع و مسئول را ثبت کنید.');
+      return [key,{status,reference,reviewer}];
+    }));
+    if (v.resource && !mang07Resources().has(v.resource) && !catalog.suppliers.some(source=>source.supplier_id===v.resource)) throw Error('منبع راهکار معتبر نیست.');
+    const option = {id:previous?.id??mang07Id(),title:v.title.trim(),description:v.description.trim(),owner:v.owner.trim(),proposer:v.proposer.trim(),start:mang07Amount(v.start),
+      duration:mang07Nonnegative(v.duration),resource:v.resource,quantity:v.quantity.trim(),reservation:v.reservation.trim(),cost:mang07Amount(v.cost),budget:mang07Amount(v.budget),
+      effects:Object.fromEntries(item.effects.map(row=>[row.id,mang07Nonnegative(v['effect-'+row.id])])),
+      effectVersions:Object.fromEntries(item.effects.map(row=>[row.id,row.versions.length+1])),gates,at:stamp};
+    if (previous) item.options[item.options.indexOf(previous)] = option;
+    else item.options.push(option);
+    mang07OptionId = '';
+  } else if (type === 'mang07-decision' || type === 'mang07-reject') {
+    const option = item.options.find(candidate=>candidate.id===v.optionId);
+    if (!option || option.rejectedAt || !v.reason.trim()) throw Error('گزینه یا دلیل تصمیم معتبر نیست.');
+    if (type === 'mang07-reject') {
+      option.rejectedAt = stamp;
+      option.rejectedReason = v.reason.trim();
+    } else {
+      const result = mang07Evaluate(item,option);
+      if (!result.feasible || !v.approver.trim() || !v.owner.trim()) throw Error('این گزینه شرایط تصویب را ندارد.');
+      const due = mang07Amount(v.due);
+      if (due===null) throw Error('مهلت اجرای مصوبه را وارد کنید.');
+      item.decision = {id:mang07Id(),optionId:option.id,optionTitle:option.title,at:stamp,approver:v.approver.trim(),
+        role:'مدیر ارشد (دمو)',reason:v.reason.trim(),owner:v.owner.trim(),due,status:'approved',rows:structuredClone(result.rows),
+        reviewedGates:structuredClone(option.gates),gates:structuredClone(result.gates),optionAt:option.at,net:result.net,partial:result.incomplete};
+    }
+  }
+  mang07SaveAndRender();
+}
+function mang07Action(action) {
+  if (action.dataset.action==='mang07-new-case') {
+    mang07CaseId = '';
+    go('issues','register');
+    return;
+  }
+  const item = mang07Cases.find(record=>record.id===action.dataset.caseId);
+  if (!item) return;
+  mang07CaseId = item.id;
+  const type = action.dataset.action;
+  if (type==='mang07-case-open' || type==='mang07-edit-effect') {
+    mang07EffectId = action.dataset.effectId ?? '';
+    go('issues','register');
+  } else if (type==='mang07-options' || type==='mang07-edit-option') {
+    mang07OptionId = action.dataset.optionId ?? '';
+    go('solutions','register');
+  } else if (type==='mang07-start' && item.decision?.status==='approved') {
+    item.decision.status = 'started';
+    item.decision.startedAt = new Date().toISOString();
+    mang07SaveAndRender();
+  } else if (type==='mang07-open-outcome') {
+    go('memory','outcomes');
+  }
+}
+function mang07EffectChange(target) {
+  const f = target.closest('form[data-form="mang07-effect"]');
+  if (!f || !['order','type'].includes(target.name)) return;
+  const order = mang07Order(f.elements.order.value);
+  const references = order ? mang07References(order,f.elements.type.value) : [];
+  f.elements.reference.replaceChildren(new Option('انتخاب مرجع موجود',''),...references.map(id=>new Option(id,id)));
+  if (references.length===1) f.elements.reference.value = references[0];
+}
+
+function mang07RiskPanel(){
+ const rows=mang07Cases.flatMap(c=>{
+  const decision=c.decision;
+  const effects=c.effects||[];
+  if(!effects.length){
+   return [[esc(c.title),'—','—','نامشخص','نامشخص','نامشخص','—','—','در دست بررسی']];
+  }
+  return effects.map(row=>{
+   const signed=decision?.rows?.find(item=>item.row.id===row.id);
+   const forecast=signed?signed.withOption:row.needsReview?null:row.noAction;
+   const phase=decision?({'approved':'تصویب‌شده','started':'در حال اجرا','completed':'پایان اجرا'}[decision.status]||'تصمیم ثبت‌شده'):'در دست بررسی';
+   return [
+    esc(c.title),esc(row.order||row.project||'—'),
+    esc(mang07Type[row.type]||row.type)+' · '+esc(row.unit==='day'?'روز نسبی':'میلیون تومان')+(row.type==='cost'&&signed?'، پیش از هزینه مستقیم اقدام':''),
+    esc(mang07Value(signed?signed.baseline:row.baseline)),
+    esc(mang07Value(signed?signed.noAction:row.noAction)),
+    '<span data-mang07-forecast="'+esc(row.id)+'">'+esc(mang07Value(forecast))+'</span>',
+    decision?esc(decision.optionTitle):'—',esc((signed?.row||row).origin||'نامشخص'),esc(row.needsReview?'نیازمند بازبینی برآورد':phase+((row.baseline==null||row.noAction==null||forecast==null)?' · اثر نامشخص':''))
+   ];
+  });
+ });
+ const selectedCosts=mang07Cases.filter(c=>c.decision).map(c=>'<p>'+esc(c.title)+' · خالص آموزشی اقلام عدددار: '+esc(mang07Money(c.decision.net))+' میلیون تومان'+(c.decision.partial?' · پوشش ناقص':'')+'</p>').join('');
+ const intro='<p class="app-muted">این لایه به پرونده‌های آموزشی محدود است. پیش‌بینی جاری از ادامه وضع فعلی یا نسخهٔ مصوب گزینهٔ منتخب خوانده می‌شود. نتیجهٔ مشاهده‌شده در بخش دانش و تجربه ثبت می‌شود.</p>';
+ const content=rows.length?table(['پرونده','سفارش','تعهد / واحد','خط مبنا','بدون اقدام','پیش‌بینی جاری','راهکار منتخب','مبنای برآورد','وضعیت'],rows):'<p class="app-muted">پروندهٔ آموزشی ثبت نشده است.</p>';
+ return '<div data-mang07-risk>'+card('پرونده‌های آموزشی · نقشه ارزش',intro+selectedCosts+content)+'</div>';
+}
+
+function mang07ClosureForm(type,c,fields,label,mode=''){
+ return form(type,fields,label).replace('data-form="'+type+'"','data-form="'+type+'" data-case="'+esc(c.id)+'"'+(mode?' data-mode="'+mode+'"':''));
+}
+
+function mang07MemoryPanel(view){
+ const panels=mang07Cases.filter(c=>c.decision).map(c=>{
+  const decision=c.decision;
+  const signed=decision.rows||[];
+  const observations=c.outcomes||[];
+  const eligible=decision.status==='started';
+  const decisionInfo='<p class="app-muted">گزینهٔ منتخب: '+esc(decision.optionTitle)+' · شناسهٔ تصمیم: '+esc(decision.id)+' · نسخهٔ مصوب: '+esc(decision.at)+'</p>';
+  if(view==='outcomes'){
+   const listed=observations.length?table(['تعهد / سفارش','پیش‌بینی مصوب','نتیجهٔ مشاهده‌شده','اختلاف','مبنای پیش‌بینی','منشأ نتیجه','مدرک / توضیح','نسخهٔ تصمیم'],observations.map(outcome=>[
+    esc(outcome.typeLabel)+' · '+esc(outcome.order||'—')+' · '+esc(outcome.unit),
+    esc(mang07Value(outcome.approved)),
+    esc(mang07Value(outcome.observed)),
+    '<span data-mang07-observed-variance="'+esc(outcome.effectId)+'">'+esc(mang07Value(outcome.variance))+'</span>',
+    esc(outcome.forecastOrigin||'نامشخص'),esc(outcome.classification==='evidence'?'مدرک ثبت شده در دمو':'نتیجه شبیه‌سازی'),
+    esc([outcome.evidence,outcome.note].filter(Boolean).join(' · ')||'—'),esc(outcome.decisionId)
+   ])):'<p class="app-muted">نتیجه‌ای برای این تصمیم ثبت نشده است.</p>';
+   let actions='';
+   if(eligible&&signed.length){
+    actions=mang07ClosureForm('mang07-outcome',c,[
+     select('تعهد مصوب','effect',[['','انتخاب تعهد'],...signed.map(item=>[
+      item.row.id,(mang07Type[item.row.type]||item.row.type)+' · '+(item.row.order||item.row.project||'—')+' · '+item.row.unit
+     ])]),
+     input('نتیجه مشاهده‌شده در واحد و مبدأ همان تعهد','observed','عدد یا بازه'),
+     select('منشأ نتیجه','classification',[['simulation','نتیجه شبیه‌سازی'],['evidence','نتیجه با مدرک ثبت‌شده در دمو']]),
+     input('شناسه یا مرجع مدرک','evidence','برای نتیجه با مدرک لازم است','text',false),
+     input('توضیح','note','','text',false)
+    ],'ثبت نتیجهٔ پرونده');
+    if(observations.length){
+     actions+=mang07ClosureForm('mang07-outcome',c,[
+      input('شرح پایان اجرا و وضعیت تعهدهای باز','note','شرح کوتاه')
+     ],'ثبت پایان اجرا','complete');
+    }
+   }else if(decision.status==='approved'){
+    actions='<p class="app-muted">پس از ثبت شروع اجرا، امکان ثبت نتیجه فراهم می‌شود.</p>';
+   }else if(decision.status==='completed'){
+    actions='<p class="app-muted">پایان اجرا ثبت شده است. '+esc(decision.completionNote||'')+'</p>';
+   }
+   return card('نتایج پرونده · '+esc(c.title),decisionInfo+listed+actions);
+  }
+  const lessons=c.lessons||[];
+  const listed=lessons.length?table(['درس‌آموخته','دامنهٔ کاربرد','نتیجهٔ مرتبط','زمان ثبت'],lessons.map(lesson=>[
+   esc(lesson.text),esc(lesson.scope),esc(lesson.outcomeId),esc(lesson.at)
+  ])):'<p class="app-muted">درس‌آموخته‌ای برای این تصمیم ثبت نشده است.</p>';
+  const actions=observations.length?mang07ClosureForm('mang07-lesson',c,[
+   select('نتیجهٔ مرتبط','outcome',[['','انتخاب نتیجه'],...observations.map(o=>[
+    o.id,o.typeLabel+' · '+(o.order||'—')+' · '+mang07Value(o.observed)+' · '+o.id
+   ])]),
+   input('درس‌آموخته','text','شرح یادگیری'),
+   input('دامنهٔ کاربرد','scope','فرایند، خانوادهٔ محصول یا نوع چالش')
+  ],'ثبت درس‌آموختهٔ پرونده'):'<p class="app-muted">پس از ثبت نتیجه می‌توان درس‌آموختهٔ وابسته را ثبت کرد.</p>';
+  return card('درس‌آموخته‌های پرونده · '+esc(c.title),decisionInfo+listed+actions);
+ });
+ return panels.length?'<div data-mang07-memory="'+esc(view)+'">'+panels.join('')+'</div>':'';
+}
+
+function mang07CloseForm(f,v){
+ const type=f.dataset.form;
+ if(!['mang07-outcome','mang07-lesson'].includes(type))return false;
+ const c=mang07Cases.find(item=>item.id===f.dataset.case);
+ const decision=c?.decision;
+ const fail=message=>{notify('ثبت نشد',message);return true;};
+ if(!decision)return fail('تصمیم مربوط به پرونده پیدا نشد.');
+ if(type==='mang07-lesson'){
+  const outcome=c.outcomes.find(item=>item.id===v.outcome&&item.decisionId===decision.id);
+  const text=(v.text||'').trim(),scope=(v.scope||'').trim();
+  if(!outcome||!text||!scope)return fail('نتیجهٔ مرتبط، متن و دامنهٔ کاربرد درس‌آموخته لازم‌اند.');
+  c.lessons.push({caseId:c.id,decisionId:decision.id,outcomeId:outcome.id,text,scope,at:new Date().toISOString()});
+ }else{
+  if(decision.status!=='started')return fail('ثبت نتیجه و پایان فقط پس از ثبت شروع اجرا امکان‌پذیر است.');
+  const note=(v.note||'').trim();
+  if(f.dataset.mode==='complete'){
+   if(!c.outcomes.some(item=>item.decisionId===decision.id)||!note)return fail('پایان اجرا به نتیجهٔ مرتبط و شرح وضعیت تعهدهای باز نیاز دارد.');
+   decision.status='completed';
+   decision.completedAt=new Date().toISOString();
+   decision.completionNote=note;
+  }else{
+   const item=decision.rows?.find(entry=>entry.row.id===v.effect);
+   if(!item)return fail('تعهد را از نسخهٔ مصوب همین تصمیم انتخاب کنید.');
+   const evidence=(v.evidence||'').trim();
+   if(!['simulation','evidence'].includes(v.classification)||(v.classification==='evidence'&&!evidence))return fail('منشأ نتیجه یا مدرک معتبر برای ثبت لازم است.');
+   let observed,variance;
+   try{
+    observed=mang07Nonnegative(v.observed);
+    if(observed===null||observed===undefined)return fail('مقدار مشاهده‌شدهٔ معتبر را در واحد و مبدأ تعهد وارد کنید.');
+    // Observed bounds and approved bounds are independent unless explicitly paired.
+    variance=mang07Observed(item.withOption,observed,false);
+   }catch(err){
+    return fail(err.message||'مقدار مشاهده‌شده معتبر نیست.');
+   }
+   c.outcomes.push({
+    id:decision.id+'-O'+(c.outcomes.length+1),caseId:c.id,decisionId:decision.id,effectId:item.row.id,
+    order:item.row.order,typeLabel:mang07Type[item.row.type]||item.row.type,unit:item.row.unit,
+    approved:item.withOption,forecastOrigin:item.row.origin,observed,variance,classification:v.classification,evidence,note,at:new Date().toISOString()
+   });
+  }
+ }
+ mang07SaveAndRender();
+ notify('ثبت شد','اطلاعات در تاریخچهٔ همین پروندهٔ آموزشی ثبت شد.');
+ return true;
+}
+
 function submitForm(f){
  const fd=new FormData(f),v=Object.fromEntries(fd.entries()),type=f.dataset.form,stamp=new Date().toISOString();
- if(type==='issue'){
-  if(!v.title || !v.title.trim()){notify('خطای ورودی','عنوان چالش الزامی است و نمی‌تواند خالی باشد.');return;}
-  if('project_id' in v){
-    if(!v.project_id || !v.project_id.trim()){notify('خطای ورودی','شناسه پروژه الزامی است.');return;}
-    if(v.var_billion===undefined || v.var_billion==='' || isNaN(Number(v.var_billion))){notify('خطای ورودی','ارزش در معرض خطر (VaR) الزامی است و مقدار پیش‌فرض پذیرفته نمی‌شود.');return;}
-    if(v.wip_cost_million===undefined || v.wip_cost_million==='' || isNaN(Number(v.wip_cost_million))){notify('خطای ورودی','هزینه ماندگار WIP الزامی است.');return;}
-    if(v.copq_million===undefined || v.copq_million==='' || isNaN(Number(v.copq_million))){notify('خطای ورودی','هزینه عدم کیفیت COPQ الزامی است.');return;}
-    if(v.treasury_lag_days===undefined || v.treasury_lag_days==='' || isNaN(Number(v.treasury_lag_days))){notify('خطای ورودی','تأخیر تخصیص نقدینگی خزانه الزامی است.');return;}
-    if(v.days_to_pnr===undefined || v.days_to_pnr==='' || isNaN(Number(v.days_to_pnr))){notify('خطای ورودی','مهلت تا نقطه غیرقابل بازگشت (PNR) الزامی است.');return;}
-  }
-
-  const newIss={
-    ...v,
-    id: v.id ? v.id.trim() : ('ISS-' + Date.now().toString().slice(-4)),
-    project_id: (v.project_id || (v.object ? v.object.split(' ')[0] : 'P-1405')).trim(),
-    title: v.title.trim(),
-    type: v.type || 'MATERIAL',
-    type_fa: v.type === 'MATERIAL' ? 'متریال و قطعات' : v.type === 'MACHINE' ? 'ماشین‌آلات' : v.type === 'MANPOWER' ? 'نیروی انسانی' : v.type === 'METHOD' ? 'روش و انحراف طراحی' : 'نقدینگی و اصطکاک خزانه',
-    object: v.object || v.title.trim(),
-    severity: v.severity || 'HIGH',
-    var_billion: Number(v.var_billion) || 0,
-    wip_cost_million: Number(v.wip_cost_million) || 0,
-    copq_million: Number(v.copq_million) || 0,
-    treasury_lag_days: Number(v.treasury_lag_days) || 0,
-    days_to_pnr: Number(v.days_to_pnr) || 30,
-    status: 'OPEN',
-    status_fa: 'باز / در دست پیگیری',
-    description: v.description ? v.description.trim() : 'ثبت شده در سامانه PVPT (نیازمند شواهد سه‌گانه)',
-    data_class: 'DEMO_SYNTHETIC',
-    created_at: new Date().toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'})
-  };
-  if (!db.issues) db.issues = [];
-  db.issues.unshift(newIss);
-  db.events.unshift({type:'issue',title:v.title,object:v.object||v.title,severity:v.severity,createdAt:stamp});
+ if(type.startsWith('mang07-')){
+   try{mang07Submit(f,v);}catch(error){notify('ثبت نشد',error.message);}
+   return;
  }
- else if(type==='solution'){
-   if(!v.title || !v.title.trim()){notify('خطای ورودی','عنوان راهکار پیشنهادی الزامی است.');return;}
-   if(!v.issue_id || !v.issue_id.trim()){notify('خطای ورودی','شناسه چالش مرتبط (Issue ID) الزامی است.');return;}
-   if(!v.project_id || !v.project_id.trim()){notify('خطای ورودی','شناسه پروژه مرتبط الزامی است.');return;}
-   if(v.cost_million===undefined || v.cost_million==='' || isNaN(Number(v.cost_million))){notify('خطای ورودی','هزینه اجرای راهکار الزامی است.');return;}
-   if(v.exec_days===undefined || v.exec_days==='' || isNaN(Number(v.exec_days))){notify('خطای ورودی','زمان اجرای راهکار الزامی است.');return;}
-   if(v.protected_var_billion===undefined || v.protected_var_billion==='' || isNaN(Number(v.protected_var_billion))){notify('خطای ورودی','ارزش حفاظت‌شده الزامی است.');return;}
-   if(v.saved_wip_million===undefined || v.saved_wip_million==='' || isNaN(Number(v.saved_wip_million))){notify('خطای ورودی','صرفه‌جویی هزینه WIP الزامی است.');return;}
-
-   const newSol={
-     id: v.id ? v.id.trim() : ('SOL-' + Date.now().toString().slice(-4)),
-     issue_id: v.issue_id.trim(),
-     project_id: v.project_id.trim(),
-     title: v.title.trim(),
-     strategy_type: v.strategy_type || 'EXPEDITE_PROCUREMENT',
-     strategy_fa: v.strategy_type === 'EXPEDITE_PROCUREMENT' ? 'خرید فوری' : v.strategy_type === 'CAPACITY_OVERTIME' ? 'اضافه‌کاری' : v.strategy_type === 'MATERIAL_BORROW' ? 'استقراض متریال' : 'راهکار اجرایی',
-     feasibility: v.feasibility || 'FEASIBLE',
-     feasibility_fa: v.feasibility === 'FEASIBLE' ? 'امکان‌پذیر' : 'مشروط',
-     cost_million: Number(v.cost_million),
-     exec_days: Number(v.exec_days),
-     protected_var_billion: Number(v.protected_var_billion),
-     saved_wip_million: Number(v.saved_wip_million),
-     status: 'PROPOSED',
-     status_fa: 'در انتظار بررسی و تصویب',
-     owner: v.owner ? v.owner.trim() : 'مدیر پروژه',
-     approved_at: '—',
-     note: v.note ? v.note.trim() : 'ثبت‌شده در صف بررسی راهکارها',
-     cannibalization_checked: true,
-     data_class: 'DEMO_SYNTHETIC'
-   };
-   if (!db.solutions || !db.solutions.length) db.solutions = [...ceoDetailedSolutions];
-   db.solutions.unshift(newSol);
-   db.events.unshift({type:'solution',title:v.title,createdAt:stamp});
- }
- else if(type==='resource'){const r={...v,id:'LOCAL-RES-'+Date.now(),resource_type:v.type,capacity:Number(v.capacity)||0,data_class:'DEMO_SYNTHETIC',createdAt:stamp};db.resources.unshift(r);db.catalogResources.unshift(r);catalog.resources.unshift(r);}
+ if(type==='resource'){const r={...v,id:'LOCAL-RES-'+Date.now(),resource_type:v.type,capacity:Number(v.capacity)||0,data_class:'DEMO_SYNTHETIC',createdAt:stamp};db.resources.unshift(r);db.catalogResources.unshift(r);catalog.resources.unshift(r);}
  else if(type==='decision'){
    const [sid,oid]=String(v.option).split('|');const scenario=scenarios[sid]||scenarios[v.scenario];const opt=(scenarios[sid]||scenarios[v.scenario]).options.find(o=>o.id===(oid||v.option));
    if(!opt){notify('ثبت نشد','گزینه انتخاب‌شده معتبر نیست.');return;}
@@ -1205,9 +1719,37 @@ function submitForm(f){
  else if(type==='lesson'){db.lessons.unshift({...v,data_class:'DEMO_SYNTHETIC',createdAt:stamp});}
  else if(type==='assumption'){db.assumptions.unshift({...v,data_class:v.status==='USER_APPROVED_ASSUMPTION'?'USER_APPROVED_ASSUMPTION':'DEMO_SYNTHETIC',createdAt:stamp});}
  else if(type==='source'){const src={...v,id:'LOCAL-SOURCE-'+Date.now(),data_class:v.class,createdAt:stamp};db.sources.unshift(src);db.events.unshift({type:'source',title:v.name,source:v.url,class:v.class,owner:v.owner,createdAt:stamp});}
- else if(type==='project'){const p={project_id:v.id,project_name:v.name,family_id:v.family,data_class:'DEMO_SYNTHETIC',status:v.status};catalog.projects.unshift(p);db.projects.unshift(p);db.events.unshift({type:'project',title:v.name,createdAt:stamp});}
- else if(type==='commitment'){const c={commitment_id:v.id,project_id:v.project,type:'INTERNAL',label:v.name,due_day:Number(v.due)||null,data_class:'DEMO_SYNTHETIC'};catalog.commitments.unshift(c);db.commitments.unshift(c);}
- else if(type==='execution'){db.events.unshift({type:'execution',title:v.order+' · '+v.status,note:v.note,data_class:'DEMO_SYNTHETIC',createdAt:stamp});}
+ else if(type==='project'){
+   const id=v.id.trim(),name=v.name.trim();
+   if(!id||!name||!catalog.families.some(fm=>fm.family_id===v.family)){
+     notify('خطای ورودی','شناسه، نام و خانوادهٔ معتبر پروژه الزامی است.');return;
+   }
+   if(catalog.projects.some(p=>p.project_id===id)||company1404DetailedUnits.some(u=>u.serial===id)||company1404Busducts.some(b=>b.id===id)){
+     notify('خطای ورودی','این شناسه برای یک پروژه یا واحد موجود ثبت شده است.');return;
+   }
+   const p={project_id:id,project_name:name,family_id:v.family,data_class:'DEMO_SYNTHETIC',status:v.status};
+   catalog.projects.unshift(p);db.projects.unshift(p);
+   db.events.unshift({type:'project',title:name,createdAt:stamp});
+ }
+ else if(type==='commitment'){
+   const id=v.id.trim(),project=v.project.trim(),label=v.name.trim(),due=Number(v.due);
+   const projectKnown=catalog.projects.some(p=>p.project_id===project)||company1404DetailedUnits.some(u=>u.serial===project)||company1404Busducts.some(b=>b.id===project);
+   if(!id||!label||!projectKnown||v.due===''||!Number.isFinite(due)){
+     notify('خطای ورودی','شناسه، شرح، پروژهٔ موجود و موعد عددی تعهد را وارد کنید.');return;
+   }
+   if(catalog.commitments.some(c=>c.commitment_id===id)){
+     notify('خطای ورودی','شناسهٔ تعهد باید یکتا باشد.');return;
+   }
+   const c={commitment_id:id,project_id:project,type:'INTERNAL',label,due_day:due,data_class:'DEMO_SYNTHETIC'};
+   catalog.commitments.unshift(c);db.commitments.unshift(c);
+ }
+ else if(type==='execution'){
+   const order=v.order.trim(),note=v.note.trim();
+   if(!catalog.orders.some(o=>o.production_order_id===order)||!note||!['PCNF','CNF','TECO'].includes(v.status)){
+     notify('خطای ورودی','سفارش دمو، وضعیت معتبر و توضیح اجرا را وارد کنید.');return;
+   }
+   db.events.unshift({type:'execution',title:order+' · '+v.status,order,status:v.status,note,data_class:'DEMO_SYNTHETIC',createdAt:stamp});
+ }
  else if(type==='supplier'){const sup={supplier_id:'LOCAL-'+Date.now(),name:v.name,part:v.part,date:v.date,data_class:'DEMO_SYNTHETIC'};catalog.suppliers.unshift(sup);db.suppliers.unshift(sup);}
  else if(type==='simulation'){
    const s=scenarios[v.scenario]||scenarios.part;const window=Number(v.window),budget=Number(v.budget),cap=Number(v.capacity);
@@ -1237,28 +1779,33 @@ document.addEventListener('click',function(e){
    return;
  }
  e.preventDefault();e.stopImmediatePropagation();
+ if(a.startsWith('mang07-')){
+   try{mang07Action(action);}catch(error){notify('ثبت نشد',error.message);}
+   return;
+ }
  if(a==='propose-solution-for-issue'){
-   const issueId = action.dataset.issueId;
-   const projId = action.dataset.projectId;
-   go('solutions', 'register', true);
-   setTimeout(() => {
-     const issueInput = $('[name=issue_id]'); if (issueInput) issueInput.value = issueId;
-     const projInput = $('[name=project_id]'); if (projInput) projInput.value = projId;
-   }, 50);
+   mang07CaseId = '';
+   notify('نمونهٔ قبلی دمو','برای مقایسهٔ قابل پیگیری، یک پرونده انتخاب کنید یا چالش تازه‌ای با مرجع معتبر ثبت کنید.');
+   go('solutions','register',true);
    return;
  }
  if(a==='approve-solution'){
    const solId = action.dataset.solutionId;
-   if (!db.solutions || !db.solutions.length) db.solutions = [...ceoDetailedSolutions];
-   const s = db.solutions.find(x => x.id === solId);
+   const s = (db.solutions.length ? db.solutions : ceoDetailedSolutions).find(x => x.id === solId);
    if (s) {
-     s.status = 'APPROVED';
-     s.status_fa = 'مصوب مدیرعامل / در حال اجرا';
-     s.approved_at = new Date().toLocaleDateString('fa-IR') + ' ' + new Date().toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'});
+     if (s.feasibility !== 'FEASIBLE') {
+       notify('تصویب مسدود شد','راهکار نمونه تا تأیید قیود قابل تصویب نیست. برای بررسی کامل یک پروندهٔ آموزشی باز کنید.');
+       return;
+     }
+     if (!db.solutions.length) db.solutions = ceoDetailedSolutions.map(option=>({...option}));
+     const record = db.solutions.find(option=>option.id===solId);
+     record.status = 'APPROVED';
+     record.status_fa = 'مصوب مدیرعامل / شروع ثبت نشده';
+     record.approved_at = new Date().toLocaleDateString('fa-IR') + ' ' + new Date().toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'});
      save();
      syncHomeKpis();
      rerender();
-     notify('تصویب شد ✓', 'راهکار ' + solId + ' با موفقیت به تصویب مدیرعامل رسید و ابلاغ شد.');
+     notify('تصویب شد ✓', 'راهکار ' + solId + ' در دمو تصویب شد. آغاز اجرا جداگانه ثبت می‌شود.');
    }
    return;
  }
@@ -1276,7 +1823,7 @@ document.addEventListener('click',function(e){
    }
    return;
  }
- if(a==='clear-filter'){db.activeFilter=null;rerender();return;}
+ if(a==='clear-filter'){db.activeFilter=null;assignmentFamily=null;rerender();return;}
  if(a==='back-home'){db.activeFilter=null;go('home','overview');return;}
  if(a==='filter-project'){const pid=action.dataset.project;navigateFromHome({page:'projects',view:'projects',project:pid,context:'ردیابی یکپارچه پروژه '+pid});return;}
  if(a==='nav-direct'){navigateFromHome({page:action.dataset.targetPage,view:action.dataset.targetView,context:'مشاهده جزئیات شاخص کلان از صفحه دانش و تجربه'});return;}
@@ -1312,6 +1859,13 @@ document.addEventListener('click',function(e){
 });
 document.addEventListener('submit',function(e){const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();submitForm(f);},true);
 function handleWorkbenchChange(e){
+ if (e.type==='change') mang07EffectChange(e.target);
+ if(e.type==='change'&&e.target.matches('[name=assignmentFamily]')){
+   assignmentFamily=e.target.value;
+   rerender();
+   $('[name=assignmentFamily]')?.focus();
+   return;
+ }
  if(e.target.matches('[name=productSearch],[name=family],[name=dataClass]')){const root=$('#product-results');if(!root)return;let ps=catalog.products.slice();const search=($('[name=productSearch]')?.value||'').toLowerCase();const fam=$('[name=family]')?.value||'';const cls=$('[name=dataClass]')?.value||'';ps=ps.filter(p=>(!search||String(p.name||p.model_code||'').toLowerCase().includes(search)||String(p.product_id).toLowerCase().includes(search))&&(!fam||p.family_id===fam)&&(!cls||(p.data_class||p.source_status)===cls));root.innerHTML=productGrid(ps);}
  if(e.target.matches('[name=proj1404Group],[name=proj1404Month],[name=proj1404Search]')){
    db.proj1404Group=$('[name=proj1404Group]')?.value||'';

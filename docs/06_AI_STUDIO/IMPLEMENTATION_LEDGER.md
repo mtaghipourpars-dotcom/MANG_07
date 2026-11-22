@@ -189,3 +189,10 @@ For every completed gate append:
   - `compile_applet`: Build succeeded.
   - `lint_applet`: PASS (`node scripts/validate-agent-skills.mjs` succeeded, 5 skills checked).
   - `npx playwright test`: Suite verified across desktop and mobile.
+
+## صحه‌گذاری MANG_07 در ۲۲ نوامبر ۲۰۲۶
+
+- خط مبنای آزمون `4311b1fb680de8fa59e12c019a5dca55d8a98daa` در `MANG_07` بود. این ثبت فقط به نسخهٔ دمو و سه مرحلهٔ قرارداد جاری مربوط است.
+- سناریوی ایستگاه آزمون مشترک از ثبت چالش تا ثبت نتیجه و درس‌آموخته، به‌همراه حالت‌های منفی و اصلاح فرم‌های موجود، روی دسکتاپ و موبایل Chromium اجرا شد. در پیمایش مستقل، ۱۱ منو و ۴۹ نمای داخلی در هر پروفایل باز شدند.
+- با ورودی و زمان ثابت، DOM و خروجی تصویری صفحهٔ اصلی در مقایسه با خط مبنا برابر بودند. مقایسه با خط مبنای اجرایی انجام شد. فایل مرجع، HTML، CSS و دادهٔ اولیه ثابت ماندند.
+- [گزارش، محاسبات و حدود صحه‌گذاری](../07_MANG_07/VALIDATION.md)
