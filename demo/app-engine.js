@@ -23,174 +23,137 @@ memory:[['decisions','حافظه تصمیم'],['outcomes','نتایج واقعی
 sources:[['readiness','آمادگی داده و تنظیمات (Theme & Language)'],['config','پیکربندی مدل و تم'],['provenance','منشأ داده و تأییدها'],['assumptions','فرضیات تأییدشده'],['registry','کاتالوگ منابع'],['access','نقش‌ها و دسترسی']]
 };
 const KEY='pvpt-interactive-workspace-v1';
-let db={issues:[],solutions:[],resources:[],projects:[],commitments:[],catalogResources:[],suppliers:[],sources:[],decisions:[],outcomes:[],lessons:[],assumptions:[],events:[],selectedProject:'',selectedProduct:'',selectedScenario:'part',activeFilter:null};
-try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&typeof saved==='object')db={...db,...saved,activeFilter:null};}catch(e){}
+const emptyLegacy={
+ issues:[],solutions:[],resources:[],projects:[],commitments:[],catalogResources:[],suppliers:[],sources:[],
+ decisions:[],outcomes:[],lessons:[],assumptions:[],events:[]
+};
+const db={...structuredClone(emptyLegacy),selectedProject:'',selectedProduct:'',selectedScenario:'part',activeFilter:null};
+const sections={legacy:null,cases:[],preferences:{}};
+const revisions={legacy:0,cases:0,preferences:0};
+const busySections=new Set();
+let databaseReady=false;
+function legacyModal() {return {evaluations:{},selected:{},decisions:[],actuals:[]};}
+db.modal=legacyModal();
+
 let catalog={families:[],products:[],assignments:[],projects:[],commitments:[],components:[],orders:[],operations:[],resources:[],suppliers:[],issues:[]};
 let currentPage='home',currentView='overview';
 let assignmentFamily=null;
-const officialUrl='https://mapnagenerator.com/Fa/Products';
-const seedProducts=[
- {product_id:'PUB-THERMAL-MGG72-SH2',family_id:'THERMAL_GENERATORS',name:'MGG72-SH2',data_class:'PUBLIC_VERIFIED',source_reference:officialUrl},
- {product_id:'PUB-HYDRO-MGH61-SA32',family_id:'HYDRO_GENERATORS',name:'MGH61-SA32',data_class:'PUBLIC_VERIFIED',source_reference:officialUrl},
- {product_id:'PUB-WIND-MWT2.5-103-G-I',family_id:'WIND_TURBINES',name:'MWT2.5-103-G-I',data_class:'PUBLIC_VERIFIED',source_reference:officialUrl}
-];
-const seedFamilies=[
- ['THERMAL_GENERATORS','ژنراتورهای حرارتی'],['HYDRO_GENERATORS','ژنراتورهای برق‌آبی'],['WIND_TURBINES','توربین‌های بادی'],['INDUSTRIAL_GENERATORS','ژنراتورهای صنعتی'],['MOTORS','موتورها'],['BUSDuct','باس‌داکت']
-].map(([family_id,label_fa],i)=>({family_id,label_fa,display_order:i+1,data_class:'PUBLIC_VERIFIED'}));
+let relationResourceId='';
+let officialUrl='', seedProducts=[], seedFamilies=[], ceoProjects=[], ceoCommitments=[], ceoCashStages=[], ceoIssues=[], ceoDetailedIssues=[], ceoDetailedSolutions=[], scenarios={}, company1404Meta={}, company1404MacroPlan=[], company1404Groups=[], company1404DetailedUnits=[], company1404Busducts=[];
+let reference, fixture;
 
-/* Canonical CEO Cockpit Executive Scenario Dataset (DEMO_SYNTHETIC — synchronized across Home Page and all 8 operational menus) */
-const ceoProjects=[
- {project_id:'P-1405',legacy_id:'PRJ-DEMO-101',project_name:'پروژه P-1405 · ژنراتور نیروگاهی ۳۲۵ مگاوات (MGG72-SH2)',family_id:'THERMAL_GENERATORS',product_id:'PUB-THERMAL-MGG72-SH2',progress:68,status_code:'CRITICAL',status_fa:'بحرانی',var_billion:1200,days_to_pnr:5,customer_at_risk:true,cash_delay_billion:680,margin_at_risk:true,decision_id:'1',scenario_key:'part',issue_summary:'تأخیر ۱۸ روزه تأمین قطعه بحرانی (C-117 / DEMO-COMP-17)',data_class:'DEMO_SYNTHETIC'},
- {project_id:'P-1398',legacy_id:'PRJ-DEMO-102',project_name:'پروژه P-1398 · ژنراتور صنعتی و ایستگاه آزمون مشترک',family_id:'INDUSTRIAL_GENERATORS',product_id:'PUB-IND-GEN-01',progress:55,status_code:'CRITICAL',status_fa:'بحرانی',var_billion:850,days_to_pnr:12,customer_at_risk:true,cash_delay_billion:500,margin_at_risk:true,decision_id:'2',scenario_key:'capacity',issue_summary:'تعارض ظرفیت ایستگاه آزمون مشترک (کسری ۶ ساعت بین دو پروژه)',data_class:'DEMO_SYNTHETIC'},
- {project_id:'P-1412',legacy_id:'PRJ-DEMO-103',project_name:'پروژه P-1412 · توربین بادی ۲.۵ مگاوات (MWT2.5-103-G-I)',family_id:'WIND_TURBINES',product_id:'PUB-WIND-MWT2.5-103-G-I',progress:42,status_code:'HIGH_RISK',status_fa:'پرریسک',var_billion:600,days_to_pnr:28,customer_at_risk:true,cash_delay_billion:0,margin_at_risk:false,decision_id:'',scenario_key:'',issue_summary:'تغییر طراحی ناسل و نیاز به ارزیابی اثر بر BOM، زمان و هزینه',data_class:'DEMO_SYNTHETIC'},
- {project_id:'P-1395',legacy_id:'PRJ-DEMO-104',project_name:'پروژه P-1395 · ژنراتور نیروگاهی سیکل ترکیبی (MGG63-SA2)',family_id:'THERMAL_GENERATORS',product_id:'PUB-THERMAL-MGG63-SA2',progress:75,status_code:'HIGH_RISK',status_fa:'پرریسک',var_billion:400,days_to_pnr:35,customer_at_risk:false,cash_delay_billion:0,margin_at_risk:false,decision_id:'',scenario_key:'',issue_summary:'وصول مرحله‌ای قرارداد مطابق برنامه؛ نیازمند پایش زنجیره تأمین رتور',data_class:'DEMO_SYNTHETIC'},
- {project_id:'P-1401',legacy_id:'PRJ-DEMO-105',project_name:'پروژه P-1401 · بازتوانی و خدمات ژنراتور برق‌آبی (MGH61-SA32)',family_id:'HYDRO_GENERATORS',product_id:'PUB-HYDRO-MGH61-SA32',progress:60,status_code:'ATTENTION',status_fa:'نیازمند توجه',var_billion:230,days_to_pnr:55,customer_at_risk:false,cash_delay_billion:0,margin_at_risk:false,decision_id:'',scenario_key:'',issue_summary:'پایش برنامه تعمیرات و بازتوانی استاتور برق‌آبی',data_class:'DEMO_SYNTHETIC'}
-];
-const ceoCommitments=[
- {commitment_id:'COM-P1405-DEL',project_id:'P-1405',type:'CUSTOMER_DELIVERY',commitment_type:'تحویل نهایی ژنراتور ۳۲۵ مگاوات به کارفرما',due_date:'1404/02/15 (۵ روز تا نقطه غیرقابل بازگشت)',var_billion:1200,status_code:'CUSTOMER_AT_RISK',status_fa:'در معرض خطر (بحرانی)',data_class:'DEMO_SYNTHETIC'},
- {commitment_id:'COM-P1398-TEST',project_id:'P-1398',type:'CUSTOMER_DELIVERY',commitment_type:'تحویل و گواهی آزمون کارخانه‌ای (FAT) دو مشتری',due_date:'1404/02/22 (۱۲ روز تا نقطه غیرقابل بازگشت)',var_billion:850,status_code:'CUSTOMER_AT_RISK',status_fa:'در معرض خطر (تعارض ظرفیت)',data_class:'DEMO_SYNTHETIC'},
- {commitment_id:'COM-P1412-DEL',project_id:'P-1412',type:'CUSTOMER_DELIVERY',commitment_type:'تحویل مجموعه ناسل و هاب توربین بادی ۲.۵ مگاوات',due_date:'1404/03/10 (۲۸ روز تا نقطه غیرقابل بازگشت)',var_billion:600,status_code:'CUSTOMER_AT_RISK',status_fa:'در معرض خطر (تغییر طراحی)',data_class:'DEMO_SYNTHETIC'},
- {commitment_id:'COM-P1395-MS3',project_id:'P-1395',type:'MILESTONE_PAYMENT',commitment_type:'نقطه عطف مونتاژ رتور و وصول مرحله سوم',due_date:'1404/03/18 (۳۵ روز)',var_billion:400,status_code:'AT_RISK',status_fa:'پایش ویژه (وصول مطابق برنامه)',data_class:'DEMO_SYNTHETIC'},
- {commitment_id:'COM-P1401-SRV',project_id:'P-1401',type:'SERVICE_OVERHAUL',commitment_type:'تحویل بخش بازتوانی‌شده ژنراتور آبی',due_date:'1404/04/08 (۵۵ روز)',var_billion:230,status_code:'ATTENTION',status_fa:'نیازمند توجه',data_class:'DEMO_SYNTHETIC'}
-];
-const ceoCashStages=[
- {stage_id:'CASH-P1405-M4',project_id:'P-1405',title:'مرحله وصول چهارم (پس از تکمیل مونتاژ و آزمون استاتور P-1405)',amount_billion:680,status_fa:'در معرض تأخیر (وابسته به قطعه DEMO-COMP-17)',delay_risk:'۱۸ روز تأخیر احتمالی در صورت عدم تسریع خرید',data_class:'DEMO_SYNTHETIC'},
- {stage_id:'CASH-P1398-FAT',project_id:'P-1398',title:'مرحله وصول گواهی آزمون نهایی (FAT پروژه P-1398)',amount_billion:500,status_fa:'در معرض تأخیر (وابسته به رفع تعارض ایستگاه آزمون)',delay_risk:'تأخیر در صورت عدم تصویب اضافه‌کاری یا آزمون بیرونی',data_class:'DEMO_SYNTHETIC'},
- {stage_id:'CASH-P1395-M3',project_id:'P-1395',title:'وصول مرحله‌ای قرارداد پروژه P-1395',amount_billion:320,status_fa:'وصول‌شده / مطابق برنامه',delay_risk:'بدون تأخیر (ثبت در آخرین تحولات)',data_class:'DEMO_SYNTHETIC'}
-];
-const ceoIssues=[
- {id:'ISS-P1405-01',project_id:'P-1405',title:'به‌روزرسانی تعهد تأمین‌کننده پروژه P-1405: تأخیر ۱۸ روزه قطعه بحرانی C-117',type:'MATERIAL',object:'پروژه P-1405 / Cell استاتور / قطعه C-117',severity:'HIGH',var_billion:1200,days_to_pnr:5,time_ago:'۲ ساعت پیش',data_class:'DEMO_SYNTHETIC'},
- {id:'ISS-P1398-02',project_id:'P-1398',title:'گزارش آزمون میانی پروژه P-1398: کسری ۶ ساعت در ایستگاه آزمون مشترک MACH-TEST-01',type:'MACHINE',object:'پروژه P-1398 / ایستگاه آزمون مشترک',severity:'HIGH',var_billion:850,days_to_pnr:12,time_ago:'۴ ساعت پیش',data_class:'DEMO_SYNTHETIC'},
- {id:'ISS-P1412-03',project_id:'P-1412',title:'تغییر طراحی پروژه P-1412: نیاز به ارزیابی اثر بر BOM، زمان و هزینه',type:'METHOD',object:'پروژه P-1412 / BOM مونتاژ هاب و ناسل',severity:'MEDIUM',var_billion:600,days_to_pnr:28,time_ago:'۱ روز پیش',data_class:'DEMO_SYNTHETIC'},
- {id:'ISS-P1401-04',project_id:'P-1401',title:'ریسک تداخل برنامه بازتوانی و خدمات ژنراتور آبی P-1401',type:'MANPOWER',object:'پروژه P-1401 / تیم سیم‌پیچی و خدمات',severity:'MEDIUM',var_billion:230,days_to_pnr:55,time_ago:'۲ روز پیش',data_class:'DEMO_SYNTHETIC'}
-];
-
-const ceoDetailedIssues=[
- {id:'ISS-1405-01',project_id:'P-1405',title:'تأخیر ۱۸ روزه تأمین قطعه بحرانی C-117 (پروژه P-1405)',type:'MATERIAL',type_fa:'متریال و قطعات',severity:'CRITICAL',var_billion:1200,wip_cost_million:36,copq_million:120,treasury_lag_days:14,days_to_pnr:5,status:'OPEN',status_fa:'باز / در دست پیگیری',description:'ارزیابی سه‌گانه (سند انبار + لوگ برق ماشین + تلمتری جرثقیل) توقف مونتاژ استاتور به دلیل کسری قطعه C-117 را اثبات کرده است.',data_class:'DEMO_SYNTHETIC',created_at:'امروز ۱۰:۱۵'},
- {id:'ISS-1398-02',project_id:'P-1398',title:'کسری ۶ ساعت ظرفیت در ایستگاه آزمون مشترک MACH-TEST-01 (پروژه P-1398)',type:'MACHINE',type_fa:'ماشین‌آلات و ایستگاه کاری',severity:'CRITICAL',var_billion:850,wip_cost_million:25.5,copq_million:80,treasury_lag_days:21,days_to_pnr:12,status:'OPEN',status_fa:'باز / در دست پیگیری',description:'تعارض ظرفیت تست FAT بین پروژه‌های P-1398 و P-1405 در ایستگاه آزمون مشترک؛ خطر جریمه دیرکرد مشتری.',data_class:'DEMO_SYNTHETIC',created_at:'امروز ۰۸:۳۰'},
- {id:'ISS-1412-03',project_id:'P-1412',title:'تغییر انحراف طراحی ناسل و هاب توربین بادی ۲.۵ مگاوات (پروژه P-1412)',type:'METHOD',type_fa:'روش و مهندسی',severity:'HIGH',var_billion:600,wip_cost_million:18,copq_million:150,treasury_lag_days:7,days_to_pnr:28,status:'SOLUTION_PROPOSED',status_fa:'راهکار پیشنهادی',description:'نیاز به اصلاح نقشه مونتاژ و ابلاغ تغییر BOM بدون ایجاد ریسک کانبیلیزیشن.',data_class:'DEMO_SYNTHETIC',created_at:'دیروز ۱۴:۲۰'},
- {id:'ISS-1401-04',project_id:'P-1401',title:'تأخیر تخصیص نقدینگی و اصطکاک خزانه در بستر بازتوانی ژنراتور (پروژه P-1401)',type:'TREASURY',type_fa:'نقدینگی و اصطکاک خزانه',severity:'MEDIUM',var_billion:230,wip_cost_million:6.9,copq_million:40,treasury_lag_days:28,days_to_pnr:55,status:'SOLUTION_PROPOSED',status_fa:'راهکار پیشنهادی',description:'فاصله ۲۸ روزه بین تأیید فنی صورت‌وضعیت و تخصیص واقعی نقدینگی از سوی خزانه گروه.',data_class:'DEMO_SYNTHETIC',created_at:'۲ روز پیش'}
-];
-
-const ceoDetailedSolutions=[
- {id:'SOL-1405-A',issue_id:'ISS-1405-01',project_id:'P-1405',title:'تأمین تسریع‌شده قطعه C-117 با تخصیص بودجه فرعی ۱۸۰ م.ت',strategy_type:'EXPEDITE_PROCUREMENT',strategy_fa:'خرید فوری و تسریع تأمین',feasibility:'FEASIBLE',feasibility_fa:'امکان‌پذیر (شدنی)',cost_million:180,exec_days:2,protected_var_billion:1200,saved_wip_million:36,status:'APPROVED',status_fa:'مصوب مدیرعامل / در حال اجرا',owner:'مدیرعامل / مدیر تأمین',approved_at:'۱۴۰۳/۰۹/۲۷',note:'زمان تحویل ۲ روزه داخل پنجره ۵ روزه LRM است؛ سقف فرضی هزینه ۱۸۰ م.ت در برابر بودجه ۲۰۰ م.ت تأیید شد.',cannibalization_checked:true,data_class:'DEMO_SYNTHETIC'},
- {id:'SOL-1398-B',issue_id:'ISS-1398-02',project_id:'P-1398',title:'اجرای شیفت اضافه‌کاری ۶ ساعته ایستگاه آزمون MACH-TEST-01',strategy_type:'CAPACITY_OVERTIME',strategy_fa:'افزایش ظرفیت با اضافه‌کاری',feasibility:'FEASIBLE',feasibility_fa:'امکان‌پذیر (شدنی)',cost_million:90,exec_days:2,protected_var_billion:850,saved_wip_million:25.5,status:'APPROVED',status_fa:'مصوب مدیرعامل / در حال اجرا',owner:'مدیر کارخانه / مدیر پروژه P-1398',approved_at:'۱۴۰۳/۰۹/۲۶',note:'پوشش کامل کسری ۶ ساعته با هزینه‌ای کمتر از بودجه ۱۵۰ م.ت.',cannibalization_checked:true,data_class:'DEMO_SYNTHETIC'},
- {id:'SOL-1412-C',issue_id:'ISS-1412-03',project_id:'P-1412',title:'انتقال مشروط متریال از پروژه اهداکننده P-1395 پس از تایید ۱۰۰٪ متالورژی',strategy_type:'MATERIAL_BORROW',strategy_fa:'استقراض متریال بین پروژه‌ای (Guardrail Cannibalization)',feasibility:'CONDITIONAL',feasibility_fa:'مشروط به تایید گواهی',cost_million:45,exec_days:3,protected_var_billion:600,saved_wip_million:18,status:'PROPOSED',status_fa:'در انتظار بررسی و تصویب',owner:'کمیته فنی و مهندسی',approved_at:'—',note:'شرط عدم کانبیلیزیشن: تطابق ۱۰۰٪ گواهی متالورژی + سفارش جایگزین ثبت‌شده در حاشیه ایمنی LRM پروژه اهداکننده P-1395.',cannibalization_checked:true,data_class:'DEMO_SYNTHETIC'}
-];
-
-const scenarios={
- part:{id:'DEMO-01',project_id:'P-1405',title:'کمبود قطعه بحرانی (پروژه P-1405)',class:'DEMO_SYNTHETIC',need:'۲ قطعه در پنجره ۳ روزه (۵ روز تا نقطه غیرقابل بازگشت پروژه P-1405)',constraint:'موجودی آزاد ۰؛ زمان عادی تأمین ۸ روز؛ گزینه تسریع ۲ روز و ۱۸۰ میلیون تومان در برابر بودجه فرضی ۲۰۰ میلیون تومان.',options:[{id:'expedite',name:'تأمین تسریع‌شده',time:2,cost:180,cap:'۲ قطعه',ok:true,detail:'از نظر زمان و سقف فرضی هزینه عبور می‌کند؛ تأیید تأمین‌کننده، کیفیت و تاریخ تحویل هنوز لازم است.'},{id:'borrow',name:'انتقال از پروژه دیگر',time:0,cost:0,cap:'۲ قطعه',ok:false,detail:'تعهد پروژه دیگر را ۵ روز جابه‌جا می‌کند؛ بدون تغییر رسمی تعهد، ناشدنی است.'},{id:'substitute',name:'قطعه جایگزین مهندسی',time:6,cost:90,cap:'۲ قطعه',ok:false,detail:'اعتبارسنجی ۶ روزه از پنجره نیاز ۳ روزه بیشتر است.'}]},
- capacity:{id:'DEMO-02',project_id:'P-1398',title:'تعارض ظرفیت ایستگاه آزمون (پروژه P-1398)',class:'DEMO_SYNTHETIC',need:'تقاضا ۲۲ ساعت؛ ظرفیت مشترک ۱۶ ساعت (۱۲ روز تا نقطه غیرقابل بازگشت پروژه P-1398)',constraint:'کسری ظرفیت ۶ ساعت؛ سقف اضافه‌کاری ۸ ساعت و بودجه فرضی ۱۵۰ میلیون تومان.',options:[{id:'overtime',name:'اضافه‌کاری ایستگاه',time:2,cost:90,cap:'۸ ساعت افزوده',ok:true,detail:'ظرفیت افزوده ۸ ساعت کسری ۶ ساعت را می‌پوشاند؛ هزینه ۹۰ در سقف فرضی ۱۵۰ است.'},{id:'external',name:'آزمون بیرونی',time:3,cost:140,cap:'۱۰ ساعت',ok:true,detail:'از نظر ظرفیت، زمان و بودجه فرضی قابل‌بررسی است؛ صلاحیت پیمانکار و رزرو باید تأیید شوند.'},{id:'deferA',name:'تعویق پروژه A',time:5,cost:35,cap:'آزادسازی پنجره',ok:false,detail:'تعهد پروژه A را ۵ روز نقض می‌کند؛ فقط با تغییر رسمی موعد قابل بررسی مجدد است.'}]}
-};
-
-/* =========================================================================
-   COMPANY 1404 MASTER COMMITMENTS & DETAILED PROJECT TABLES
-   Exact match to user-supplied Section 2, Section 3 (الف–ز) & Thermal Busducts
-   ========================================================================= */
-const company1404Meta={
- title_fa:'۲. برنامه کلان تعهدات شرکت در سال ۱۴۰۴',
- title_en:'2. Company Macro Commitments Plan — Year 1404',
- detailed_title_fa:'۳. جداول تفصیلی پروژه‌های سال ۱۴۰۴',
- detailed_title_en:'3. Detailed Company Project Schedules — Year 1404',
- signatories_fa:'امضاکنندگان ذیل صفحه ۴: سرپرست مدیریت برنامه‌ریزی و کنترل تعهدات: بهنام گودرزی / معاونت برنامه‌ریزی و پروژه‌ها: حمیدرضا مقیم بگلو / مدیریت عامل: محمدرضا شاکری',
- signatories_en:'Signatories (Page 4 of 7): Head of Planning & Commitment Control: Behnam Goodarzi / VP Planning & Projects: Hamidreza Moghim Baglou / CEO: Mohammadreza Shakeri',
- data_class:'INTERNAL_VERIFIED'
-};
-
-const company1404MacroPlan=[
- {row:'1',product_fa:'ژنراتور گاز 185 مگاوات',product_en:'Gas Generator 185 MW',sub_fa:'',sub_en:'',code:'MGG58-SA2',annual_plan:'9 واحد',annual_plan_en:'9 Units',family_id:'THERMAL_GENERATORS',months:['-','205','206','-','207','-','208','209','210','211','212','213']},
- {row:'2',product_fa:'ژنراتور گاز 50 مگاوات',product_en:'Gas Generator 50 MW',sub_fa:'',sub_en:'',code:'MGG42-SA2',annual_plan:'7 واحد',annual_plan_en:'7 Units',family_id:'INDUSTRIAL_GENERATORS',months:['-','-','-','06','-','07','-','08','09','10','11','12']},
- {row:'3',product_fa:'ژنراتور گاز 25 مگاوات (4 شاسی)',product_en:'Gas Generator 25 MW (4-Chassis)',sub_fa:'',sub_en:'',code:'MGG33-SA2',annual_plan:'4 واحد',annual_plan_en:'4 Units',family_id:'INDUSTRIAL_GENERATORS',months:['08','-','09','-','-','10','-','-','-','11','-','-']},
- {row:'4',product_fa:'ژنراتور بخار 200 مگاوات',product_en:'Steam Generator 200 MW',sub_fa:'',sub_en:'',code:'MGS58-SA2',annual_plan:'10 واحد',annual_plan_en:'10 Units',family_id:'THERMAL_GENERATORS',months:['-','-','05','06','07','08','09','10','11','12','13','14']},
- {row:'5',product_fa:'ژنراتور 185 مگاوات TX',product_en:'Generator 185 MW TX',sub_fa:'',sub_en:'',code:'MGS56-SA2',annual_plan:'2 واحد',annual_plan_en:'2 Units',family_id:'THERMAL_GENERATORS',months:['-','-','-','-','-','03','-','04','-','-','-','-']},
- {row:'6',product_fa:'ژنراتور بخار 376 مگاوات',product_en:'Steam Generator 376 MW',sub_fa:'',sub_en:'',code:'MGS72-SH2',annual_plan:'1 واحد',annual_plan_en:'1 Unit',family_id:'THERMAL_GENERATORS',months:['-','-','-','-','-','-','-','-','-','-','-','02']},
- {row:'7',product_fa:'ژنراتور گاز 238 مگاوات',product_en:'Gas Generator 238 MW',sub_fa:'',sub_en:'',code:'MGG63-SA2',annual_plan:'1 واحد',annual_plan_en:'1 Unit',family_id:'THERMAL_GENERATORS',months:['-','-','-','-','-','-','-','-','-','-','-','02']},
- {row:'8',product_fa:'توربین بادی 2.5 مگاوات',product_en:'Wind Turbine 2.5 MW',sub_fa:'هاب و ناسل',sub_en:'Hub & Nacelle',code:'—',annual_plan:'10 واحد',annual_plan_en:'10 Units',family_id:'WIND_TURBINES',months:['-','72','73','74','75','76','77','78','79','80','81','-']},
- {row:'8',product_fa:'توربین بادی 2.5 مگاوات',product_en:'Wind Turbine 2.5 MW',sub_fa:'پره',sub_en:'Blade',code:'—',annual_plan:'10 واحد',annual_plan_en:'10 Units',family_id:'WIND_TURBINES',months:['-','-','81','82','83','84','85','86','87','88','89','90']},
- {row:'8',product_fa:'توربین بادی 2.5 مگاوات',product_en:'Wind Turbine 2.5 MW',sub_fa:'گیربکس',sub_en:'Gearbox',code:'—',annual_plan:'10 واحد',annual_plan_en:'10 Units',family_id:'WIND_TURBINES',months:['-','80','81','82','83','84','85','86','87','88','89','-']},
- {row:'8',product_fa:'توربین بادی 2.5 مگاوات',product_en:'Wind Turbine 2.5 MW',sub_fa:'تاور',sub_en:'Tower',code:'—',annual_plan:'10 واحد',annual_plan_en:'10 Units',family_id:'WIND_TURBINES',months:['-','69','70','71','72','73','74','75','76','77','78','-']},
- {row:'9',product_fa:'باسداکت',product_en:'Busduct',sub_fa:'185 مگاوات',sub_en:'185 MW',code:'—',annual_plan:'4 واحد',annual_plan_en:'4 Units',family_id:'BUSDuct',months:['-','01، 02','-','-','03','-','04','-','-','-','-','-']},
- {row:'9',product_fa:'باسداکت',product_en:'Busduct',sub_fa:'200 مگاوات',sub_en:'200 MW',code:'—',annual_plan:'4 واحد',annual_plan_en:'4 Units',family_id:'BUSDuct',months:['-','-','-','-','-','01','-','-','02','-','03','04']},
- {row:'9',product_fa:'باسداکت',product_en:'Busduct',sub_fa:'50 مگاوات',sub_en:'50 MW',code:'—',annual_plan:'6 واحد',annual_plan_en:'6 Units',family_id:'BUSDuct',months:['-','-','01','02، 03','-','04','05','06','-','-','-','-']},
- {row:'9',product_fa:'باسداکت',product_en:'Busduct',sub_fa:'185 مگاوات TX',sub_en:'185 MW TX',code:'—',annual_plan:'2 واحد',annual_plan_en:'2 Units',family_id:'BUSDuct',months:['-','-','-','-','-','-','-','01','-','02','-','-']},
- {row:'9',product_fa:'باسداکت',product_en:'Busduct',sub_fa:'238 مگاوات',sub_en:'238 MW',code:'—',annual_plan:'1 واحد',annual_plan_en:'1 Unit',family_id:'BUSDuct',months:['-','-','-','-','-','-','-','-','01','-','-','-']}
-];
-
-const company1404Groups=[
- {key:'A',code_fa:'الف',title_fa:'الف) ژنراتور گاز 185 مگاوات',title_en:'A) Gas Generator 185 MW',family_id:'THERMAL_GENERATORS',page_fa:'',page_en:''},
- {key:'B',code_fa:'ب',title_fa:'ب) ژنراتور گاز 50 مگاوات (صفحه ۴ از ۷)',title_en:'B) Gas Generator 50 MW (Page 4 of 7)',family_id:'INDUSTRIAL_GENERATORS',page_fa:'صفحه ۴ از ۷',page_en:'Page 4 of 7'},
- {key:'C',code_fa:'ج',title_fa:'ج) ژنراتور گاز 25 مگاوات 4 شاسی (صفحه ۴ از ۷)',title_en:'C) Gas Generator 25 MW 4-Chassis (Page 4 of 7)',family_id:'INDUSTRIAL_GENERATORS',page_fa:'صفحه ۴ از ۷',page_en:'Page 4 of 7'},
- {key:'D',code_fa:'د',title_fa:'د) ژنراتور بخار 200 مگاوات (صفحه ۵ از ۷)',title_en:'D) Steam Generator 200 MW (Page 5 of 7)',family_id:'THERMAL_GENERATORS',page_fa:'صفحه ۵ از ۷',page_en:'Page 5 of 7'},
- {key:'E',code_fa:'هـ',title_fa:'هـ) ژنراتور بخار 185 مگاوات – TX (صفحه ۶ از ۷)',title_en:'E) Steam Generator 185 MW – TX (Page 6 of 7)',family_id:'THERMAL_GENERATORS',page_fa:'صفحه ۶ از ۷',page_en:'Page 6 of 7'},
- {key:'F',code_fa:'و',title_fa:'و) ژنراتور بخار 376 مگاوات (صفحه ۶ از ۷)',title_en:'F) Steam Generator 376 MW (Page 6 of 7)',family_id:'THERMAL_GENERATORS',page_fa:'صفحه ۶ از ۷',page_en:'Page 6 of 7'},
- {key:'G',code_fa:'ز',title_fa:'ز) ژنراتور گاز 238 مگاوات (صفحه ۶ از ۷)',title_en:'G) Gas Generator 238 MW (Page 6 of 7)',family_id:'THERMAL_GENERATORS',page_fa:'صفحه ۶ از ۷',page_en:'Page 6 of 7'}
-];
-
-const company1404DetailedUnits=[
- // الف) ژنراتور گاز 185 مگاوات
- {group:'A',row:1,unit_no:'205',plant_fa:'سبزوار 2',plant_en:'Sabzevar 2',serial:'MGG58-SA2/205',need_date:'1404/02',note_fa:'استاتور ساخته شده است روتور در برنامه 1404',note_en:'Stator manufactured; Rotor in 1404 plan',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:2,unit_no:'206',plant_fa:'خرم آباد 4',plant_en:'Khorramabad 4',serial:'MGG58-SA2/206',need_date:'1404/03',note_fa:'استاتور ساخته شده است روتور در برنامه 1404',note_en:'Stator manufactured; Rotor in 1404 plan',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:3,unit_no:'207',plant_fa:'نکا 2',plant_en:'Neka 2',serial:'MGG58-SA2/207',need_date:'1404/05',note_fa:'استاتور ساخته شده است روتور در برنامه 1404',note_en:'Stator manufactured; Rotor in 1404 plan',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:4,unit_no:'208',plant_fa:'بهاباد 1',plant_en:'Bahabad 1',serial:'MGG58-SA2/208',need_date:'1404/07',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:5,unit_no:'209',plant_fa:'بهاباد 2',plant_en:'Bahabad 2',serial:'MGG58-SA2/209',need_date:'1404/08',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:6,unit_no:'210',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG58-SA2/210',need_date:'1404/09',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:7,unit_no:'211',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG58-SA2/211',need_date:'1404/10',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:8,unit_no:'212',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG58-SA2/212',need_date:'1404/11',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- {group:'A',row:9,unit_no:'213',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG58-SA2/213',need_date:'1404/12',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 185 مگاوات',category_en:'Gas Gen 185 MW'},
- // ب) ژنراتور گاز 50 مگاوات
- {group:'B',row:1,unit_no:'6',plant_fa:'ری 2',plant_en:'Rey 2',serial:'MGG41-SA2/006',need_date:'1404/04',note_fa:'استاتور ساخته شده است روتور در برنامه 1404',note_en:'Stator manufactured; Rotor in 1404 plan',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:2,unit_no:'7',plant_fa:'بیدبلند 1',plant_en:'Bidboland 1',serial:'MGG41-SA2/007',need_date:'1404/06',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:3,unit_no:'8',plant_fa:'دهدشت 1',plant_en:'Dehdasht 1',serial:'MGG41-SA2/008',need_date:'1404/08',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:4,unit_no:'9',plant_fa:'دهدشت 2',plant_en:'Dehdasht 2',serial:'MGG41-SA2/009',need_date:'1404/09',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:5,unit_no:'10',plant_fa:'بیدبلند 2',plant_en:'Bidboland 2',serial:'MGG41-SA2/010',need_date:'1404/10',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:6,unit_no:'11',plant_fa:'بید بلند 3',plant_en:'Bidboland 3',serial:'MGG41-SA2/011',need_date:'1404/11',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- {group:'B',row:7,unit_no:'12',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG41-SA2/012',need_date:'1404/12',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 50 مگاوات',category_en:'Gas Gen 50 MW'},
- // ج) ژنراتور گاز 25 مگاوات 4 شاسی
- {group:'C',row:1,unit_no:'8',plant_fa:'شمال EP - 1',plant_en:'Shomal EP - 1',serial:'MGG33-SA2/008',need_date:'1404/01',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 25 مگاوات (4 شاسی)',category_en:'Gas Gen 25 MW (4-Chassis)'},
- {group:'C',row:2,unit_no:'9',plant_fa:'شمال EP - 2',plant_en:'Shomal EP - 2',serial:'MGG33-SA2/009',need_date:'1404/03',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 25 مگاوات (4 شاسی)',category_en:'Gas Gen 25 MW (4-Chassis)'},
- {group:'C',row:3,unit_no:'10',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG33-SA2/010',need_date:'1404/06',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 25 مگاوات (4 شاسی)',category_en:'Gas Gen 25 MW (4-Chassis)'},
- {group:'C',row:4,unit_no:'11',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG33-SA2/011',need_date:'1404/10',note_fa:'-',note_en:'-',family_id:'INDUSTRIAL_GENERATORS',category_fa:'ژنراتور گاز 25 مگاوات (4 شاسی)',category_en:'Gas Gen 25 MW (4-Chassis)'},
- // د) ژنراتور بخار 200 مگاوات
- {group:'D',row:1,unit_no:'5',plant_fa:'الحیدریه',plant_en:'Al-Haidariya',serial:'MGS58-SA2/005',need_date:'1404/03',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:2,unit_no:'6',plant_fa:'سمنان 1',plant_en:'Semnan 1',serial:'MGS58-SA2/006',need_date:'1404/04',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:3,unit_no:'7',plant_fa:'سمنان 2',plant_en:'Semnan 2',serial:'MGS58-SA2/007',need_date:'1404/05',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:4,unit_no:'8',plant_fa:'سبزوار',plant_en:'Sabzevar',serial:'MGS58-SA2/008',need_date:'1404/06',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:5,unit_no:'9',plant_fa:'اردکان',plant_en:'Ardakan',serial:'MGS58-SA2/009',need_date:'1404/07',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:6,unit_no:'10',plant_fa:'خرمشهر 1',plant_en:'Khorramshahr 1',serial:'MGS58-SA2/010',need_date:'1404/08',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:7,unit_no:'11',plant_fa:'خرمشهر 2',plant_en:'Khorramshahr 2',serial:'MGS58-SA2/011',need_date:'1404/09',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:8,unit_no:'12',plant_fa:'خرمشهر 3',plant_en:'Khorramshahr 3',serial:'MGS58-SA2/012',need_date:'1404/10',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:9,unit_no:'13',plant_fa:'زاگرس 1',plant_en:'Zagros 1',serial:'MGS58-SA2/013',need_date:'1404/11',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- {group:'D',row:10,unit_no:'14',plant_fa:'زاگرس 2',plant_en:'Zagros 2',serial:'MGS58-SA2/014',need_date:'1404/12',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 200 مگاوات',category_en:'Steam Gen 200 MW'},
- // هـ) ژنراتور بخار 185 مگاوات – TX
- {group:'E',row:1,unit_no:'3',plant_fa:'علی آباد 1',plant_en:'Aliabad 1',serial:'MGS56-SA2/003',need_date:'1404/06',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 185 مگاوات – TX',category_en:'Steam Gen 185 MW TX'},
- {group:'E',row:2,unit_no:'4',plant_fa:'علی آباد 2',plant_en:'Aliabad 2',serial:'MGS56-SA2/004',need_date:'1404/08',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 185 مگاوات – TX',category_en:'Steam Gen 185 MW TX'},
- // و) ژنراتور بخار 376 مگاوات
- {group:'F',row:1,unit_no:'2',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGS72-SH2/002',need_date:'1404/12',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور بخار 376 مگاوات',category_en:'Steam Gen 376 MW'},
- // ز) ژنراتور گاز 238 مگاوات
- {group:'G',row:1,unit_no:'2',plant_fa:'بی نام',plant_en:'Unnamed',serial:'MGG63-SA2/002',need_date:'1404/12',note_fa:'-',note_en:'-',family_id:'THERMAL_GENERATORS',category_fa:'ژنراتور گاز 238 مگاوات',category_en:'Gas Gen 238 MW'}
-];
-
-const company1404Busducts=[
- {id:'BD-01',row:1,type_fa:'گاز 185 مگاوات',type_en:'Gas 185 MW',plant_fa:'نكاء 1',plant_en:'Neka 1',delivery_date:'1404/02',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-02',row:2,type_fa:'گاز 185 مگاوات',type_en:'Gas 185 MW',plant_fa:'مس خاتون آباد',plant_en:'Mes Khatoonabad',delivery_date:'1404/02',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-03',row:3,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'مس سونگون',plant_en:'Mes Sungun',delivery_date:'1404/03',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-04',row:4,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'مس سرچشمه',plant_en:'Mes Sarcheshmeh',delivery_date:'1404/04',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-05',row:5,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'ری 2',plant_en:'Rey 2',delivery_date:'1404/04',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-06',row:6,type_fa:'گاز 185 مگاوات',type_en:'Gas 185 MW',plant_fa:'نكاء 2',plant_en:'Neka 2',delivery_date:'1404/05',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-07',row:7,type_fa:'بخار 200 مگاوات',type_en:'Steam 200 MW',plant_fa:'گل گهر',plant_en:'Gol Gohar',delivery_date:'1404/06',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-08',row:8,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'بید بلند 1',plant_en:'Bidboland 1',delivery_date:'1404/06',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-09',row:9,type_fa:'گاز 185 مگاوات',type_en:'Gas 185 MW',plant_fa:'بهاباد 1',plant_en:'Bahabad 1',delivery_date:'1404/07',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-10',row:10,type_fa:'بخار 185 مگاوات TX',type_en:'Steam 185 MW TX',plant_fa:'علی آباد 1',plant_en:'Aliabad 1',delivery_date:'1404/08',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-11',row:11,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'دهدشت 1',plant_en:'Dehdasht 1',delivery_date:'1404/08',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-12',row:12,type_fa:'بخار 238 مگاوات',type_en:'Steam 238 MW',plant_fa:'بعثت',plant_en:'Besat',delivery_date:'1404/09',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-13',row:13,type_fa:'گاز 50 مگاوات',type_en:'Gas 50 MW',plant_fa:'دهدشت 2',plant_en:'Dehdasht 2',delivery_date:'1404/09',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-14',row:14,type_fa:'بخار 200 مگاوات',type_en:'Steam 200 MW',plant_fa:'سمنان 1',plant_en:'Semnan 1',delivery_date:'1404/09',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-15',row:15,type_fa:'بخار 185 مگاوات TX',type_en:'Steam 185 MW TX',plant_fa:'علی آباد 2',plant_en:'Aliabad 2',delivery_date:'1404/10',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-16',row:16,type_fa:'بخار 200 مگاوات',type_en:'Steam 200 MW',plant_fa:'سمنان 2',plant_en:'Semnan 2',delivery_date:'1404/11',note_fa:'-',note_en:'-',family_id:'BUSDuct'},
- {id:'BD-17',row:17,type_fa:'بخار 200 مگاوات',type_en:'Steam 200 MW',plant_fa:'سبزوار',plant_en:'Sabzevar',delivery_date:'1404/12',note_fa:'-',note_en:'-',family_id:'BUSDuct'}
-];
-
-function save(){try{const copy={...db};delete copy.activeFilter;localStorage.setItem(KEY,JSON.stringify(copy));}catch(e){}}
+function legacyValue() {
+ return Object.fromEntries([...Object.keys(emptyLegacy),'modal'].map(key=>[key,db[key]]));
+}
+function hydrateLegacy(value) {
+ for(const key of Object.keys(emptyLegacy)) db[key]=Array.isArray(value?.[key])?structuredClone(value[key]):[];
+ db.modal=value?.modal?{...legacyModal(),...structuredClone(value.modal)}:legacyModal();
+ if(reference) window.pvptSetLegacyModal?.(reference.modal,db.modal);
+}
+function hydrateSection(section,value) {
+ if(section==='legacy') {
+   hydrateLegacy(value);
+   if(reference) hydrateCatalog();
+ } else if(section==='cases') {
+   mang07Cases=Array.isArray(value)?structuredClone(value):[];
+ } else {
+   applyTheme(value?.theme||'light');
+   applyLanguage(value?.lang||'fa');
+ }
+}
+async function readDatabase(path) {
+ const response=await fetch(path,{cache:'no-store'});
+ if(!response.ok)throw Error('ارتباط با پایگاه داده برقرار نشد.');
+ return response.json();
+}
+async function saveSection(section,value) {
+ if(busySections.has(section)) throw Error('ثبت قبلی در دست انجام است.');
+ busySections.add(section);
+ try {
+   const response=await fetch('/api/workspace/'+section,{
+     method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:revisions[section],value})
+   });
+   const result=await response.json();
+   if(response.status===409) {
+     revisions[section]=result.revision;
+     sections[section]=result.value;
+     throw Error('نسخهٔ جدیدتری در پایگاه داده ثبت شده‌است. آن نسخه بارگذاری شد؛ ورودی را دوباره بررسی کنید.');
+   }
+   if(!response.ok) throw Error('ثبت در پایگاه داده انجام نشد.');
+   revisions[section]=result.revision;
+   sections[section]=result.value;
+ } catch(error) {
+   try {
+     const latest=await readDatabase('/api/workspace');
+     sections[section]=latest[section];
+     revisions[section]=latest.revisions[section];
+   } catch {}
+   hydrateSection(section,sections[section]);
+   rerender();
+   throw error;
+ } finally {
+   busySections.delete(section);
+ }
+}
+function canWrite(section) {
+ if(databaseReady&&!busySections.has(section)) return true;
+ notify('ثبت نشد',databaseReady?'ثبت قبلی در دست انجام است.':'پایگاه داده هنوز آماده نیست.');
+ return false;
+}
+async function save() {
+ await saveSection('legacy',legacyValue());
+}
+async function commitLegacy(title,detail,render=true) {
+ try {
+   await save();
+   syncHomeKpis();
+   if(render) rerender();
+   if(title)notify(title,detail);
+   return true;
+ } catch(error) {
+   notify('ثبت نشد',error.message);
+   return false;
+ }
+}
+function readOldStorage(key) {
+ try {return window.localStorage.getItem(key);} catch {return null;}
+}
+function readOldJSON(key) {
+ try {return JSON.parse(readOldStorage(key));} catch {return null;}
+}
+async function importLegacyStorage() {
+ const oldLegacy=readOldJSON(KEY),oldCases=readOldJSON(mang07Key);
+ const oldTheme=readOldStorage('pvpt_theme'),oldLanguage=readOldStorage('pvpt_lang');
+ const oldPreferences={
+   ...(['light','dark','factory'].includes(oldTheme)?{theme:oldTheme}:{}),
+   ...(['fa','en'].includes(oldLanguage)?{lang:oldLanguage}:{})
+ };
+ const candidates=[
+   ['legacy',oldLegacy&&Object.fromEntries(Object.keys(emptyLegacy).filter(key=>Array.isArray(oldLegacy[key])).map(key=>[key,oldLegacy[key]])),[KEY]],
+   ['cases',Array.isArray(oldCases)?oldCases:null,[mang07Key]],
+   ['preferences',Object.keys(oldPreferences).length?oldPreferences:null,['pvpt_theme','pvpt_lang']]
+ ];
+ for(const [section,value,keys] of candidates) if(value!==null&&revisions[section]===0) {
+   try {
+     await saveSection(section,value);
+     for(const key of keys)try{window.localStorage.removeItem(key);}catch{}
+   } catch(error) { notify('انتقال دادهٔ قبلی انجام نشد',error.message); }
+ }
+}
+async function startDatabase() {
+ // Catalogue and workspace are independent immutable reads.
+ const [dataset,workspace]=await Promise.all([readDatabase('/api/catalog'),readDatabase('/api/workspace')]);
+ ({reference,fixture}=dataset);
+ ({officialUrl,seedProducts,seedFamilies,ceoProjects,ceoCommitments,ceoCashStages,ceoIssues,ceoDetailedIssues,ceoDetailedSolutions,scenarios,
+   company1404Meta,company1404MacroPlan,company1404Groups,company1404DetailedUnits,company1404Busducts}=reference);
+ Object.assign(revisions,workspace.revisions);
+ for(const section of Object.keys(sections))sections[section]=workspace[section];
+ await importLegacyStorage();
+ for(const section of Object.keys(sections))hydrateSection(section,sections[section]);
+ databaseReady=true;
+ appOpenPage(currentPage,currentView);
+ return true;
+}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fa(v){return v===null||v===undefined||v===''?'—':Number(v).toLocaleString('fa-IR');}
 function badge(text,kind='neutral'){return '<span class="app-badge '+kind+'">'+esc(text)+'</span>';}
@@ -200,7 +163,7 @@ function table(headers,rows){return '<div class="app-table-wrap"><table class="a
 function button(label,action,kind='secondary',attrs=''){return '<button type="button" class="app-btn '+kind+'" data-action="'+action+'" '+attrs+'>'+label+'</button>';}
 function input(label,name,placeholder='',type='text',required=true){return '<label class="app-field"><span>'+label+'</span><input name="'+name+'" type="'+type+'" placeholder="'+placeholder+'" '+(required?'required':'')+'></label>';}
 function select(label,name,options,required=true){return '<label class="app-field"><span>'+label+'</span><select name="'+name+'" '+(required?'required':'')+'>'+options.map(o=>'<option value="'+esc(o[0])+'">'+esc(o[1])+'</option>').join('')+'</select></label>';}
-function form(id,fields,submit='ثبت در محیط محلی دمو'){return '<form class="app-form" data-form="'+id+'">'+fields.join('')+'<div class="app-form-actions"><button class="app-btn primary" type="submit">'+submit+'</button></div></form>';}
+function form(id,fields,submit='ثبت در پایگاه دادهٔ دمو'){return '<form class="app-form" data-form="'+id+'">'+fields.join('')+'<div class="app-form-actions"><button class="app-btn primary" type="submit">'+submit+'</button></div></form>';}
 
 function filterBannerHtml(){
  const f=db.activeFilter;
@@ -366,7 +329,8 @@ function syncHomeKpis(){
  renderHomeIssuesAndSolutions();
 }
 
-function loadFixture(){return fetch('../data/product-project-fixture.json').then(r=>{if(!r.ok)throw Error('fixture unavailable');return r.json();}).then(d=>{
+function hydrateCatalog(){
+ const d=fixture;
  catalog.families=d.product_families||seedFamilies;
  catalog.products=d.products||seedProducts;
  const baseAssign=d.project_product_assignments||d.assignments||[];
@@ -374,41 +338,14 @@ function loadFixture(){return fetch('../data/product-project-fixture.json').then
  catalog.assignments=[...ceoAssign,...baseAssign];
  catalog.projects=[...(db.projects||[]),...ceoProjects,...(d.projects||[])];
  catalog.commitments=[...(db.commitments||[]),...ceoCommitments,...(d.commitments||[])];
- catalog.components=[
-   {component_id:'CELL-P1405-STATOR (C-117)',project_id:'P-1405',product_id:'PUB-THERMAL-MGG72-SH2',production_order_id:'PO-P1405-01',data_class:'DEMO_SYNTHETIC'},
-   {component_id:'CELL-P1398-ROTOR',project_id:'P-1398',product_id:'PUB-IND-GEN-01',production_order_id:'PO-P1398-02',data_class:'DEMO_SYNTHETIC'},
-   {component_id:'CELL-P1412-NACELLE',project_id:'P-1412',product_id:'PUB-WIND-MWT2.5-103-G-I',production_order_id:'PO-P1412-03',data_class:'DEMO_SYNTHETIC'},
-   ...(d.components||[])
- ];
- catalog.orders=[
-   {production_order_id:'PO-P1405-01',component_id:'CELL-P1405-STATOR (C-117)',project_id:'P-1405',status:'BLOCKED_MATERIAL (کمبود قطعه DEMO-COMP-17)',data_class:'DEMO_SYNTHETIC'},
-   {production_order_id:'PO-P1398-02',component_id:'CELL-P1398-ROTOR',project_id:'P-1398',status:'TEST_QUEUE_CONFLICT (تعارض ایستگاه آزمون)',data_class:'DEMO_SYNTHETIC'},
-   {production_order_id:'PO-P1412-03',component_id:'CELL-P1412-NACELLE',project_id:'P-1412',status:'DESIGN_REVISION (بررسی تغییر طراحی)',data_class:'DEMO_SYNTHETIC'},
-   {production_order_id:'PO-P1395-04',component_id:'CELL-P1395-CORE',project_id:'P-1395',status:'RUNNING (در حال اجرا - ۷۵٪)',data_class:'DEMO_SYNTHETIC'},
-   ...(d.production_orders||[])
- ];
- catalog.operations=[
-   {operation_id:'OP-P1405-30',production_order_id:'PO-P1405-01',project_id:'P-1405',sequence_no:30,machine_resource_id:'MACH-WIND-01 (مونتاژ سیم‌پیچ استاتور)',planned_hours:16,data_class:'DEMO_SYNTHETIC'},
-   {operation_id:'OP-P1405-40',production_order_id:'PO-P1405-01',project_id:'P-1405',sequence_no:40,machine_resource_id:'MACH-TEST-01 (آزمون نهایی ژنراتور)',planned_hours:12,data_class:'DEMO_SYNTHETIC'},
-   {operation_id:'OP-P1398-20',production_order_id:'PO-P1398-02',project_id:'P-1398',sequence_no:20,machine_resource_id:'MACH-TEST-01 (ایستگاه آزمون مشترک - کسری ۶ ساعت)',planned_hours:22,data_class:'DEMO_SYNTHETIC'},
-   ...(d.operations||[])
- ];
- const moneySeeds=[
-   {resource_id:'CASH-STAGE-P1405',name:'مرحله وصول P-1405 (در معرض تأخیر)',resource_type:'MONEY',capacity:680,unit:'میلیارد تومان (DEMO)',data_class:'DEMO_SYNTHETIC'},
-   {resource_id:'CASH-STAGE-P1398',name:'مرحله وصول P-1398 (در معرض تأخیر)',resource_type:'MONEY',capacity:500,unit:'میلیارد تومان (DEMO)',data_class:'DEMO_SYNTHETIC'},
-   {resource_id:'CASH-BUDGET-P1405',name:'سقف بودجه مداخله تأمین تسریع‌شده (P-1405)',resource_type:'MONEY',capacity:200,unit:'میلیون تومان (DEMO)',data_class:'DEMO_SYNTHETIC'},
-   {resource_id:'CASH-BUDGET-P1398',name:'سقف بودجه مداخله ایستگاه آزمون (P-1398)',resource_type:'MONEY',capacity:150,unit:'میلیون تومان (DEMO)',data_class:'DEMO_SYNTHETIC'}
- ];
- catalog.resources=[...(db.catalogResources||[]),...(d.resources||[]),...moneySeeds];
- catalog.suppliers=[
-   ...(db.suppliers||[]),
-   {supplier_id:'SUP-DEMO-01',name:'تأمین‌کننده قطعه بحرانی C-117 (پروژه P-1405 · تأخیر ۱۸ روزه)',part:'DEMO-COMP-17 / C-117',date:'1404/02/10',data_class:'DEMO_SYNTHETIC'},
-   {supplier_id:'SUP-DEMO-02',name:'پیمانکار آزمون بیرونی تأییدشده (پروژه P-1398 · ظرفیت ۱۰ ساعت)',part:'FAT-EXTERNAL',date:'1404/02/14',data_class:'DEMO_SYNTHETIC'},
-   ...(d.suppliers||[])
- ];
+ catalog.components=[...reference.components,...(d.components||[])];
+ catalog.orders=[...reference.orders,...(d.production_orders||[])];
+ catalog.operations=[...reference.operations,...(d.operations||[])];
+ catalog.resources=[...(db.catalogResources||[]),...(d.resources||[]),...reference.moneyResources];
+ catalog.suppliers=[...(db.suppliers||[]),...reference.suppliers,...(d.suppliers||[])];
  catalog.issues=[...ceoIssues,...(d.issues||[])];
  syncHomeKpis();
-}).catch(()=>{catalog.families=seedFamilies;catalog.products=seedProducts;catalog.projects=ceoProjects;catalog.commitments=ceoCommitments;});}
+}
 
 function viewHome(view){
  const publicCount=catalog.products.filter(p=>p.data_class==='PUBLIC_VERIFIED'||p.source_status==='PUBLIC_VERIFIED').length;
@@ -715,7 +652,7 @@ function viewRisk(view){
    ['P-1412','تغییر طراحی مجموعه ناسل','بازنگری BOM و عملیات مونتاژ','ریسک جابه‌جایی موعد تحویل ۲۸ روزه','نیازمند برآورد هزینه تغییر مهندسی',badge('در دست ارزیابی','warn')]
  ])+'<div class="app-flow vertical" style="margin-top:12px">'+['Issue / انحراف اولیه','Activity / Routing / Cell','نیاز و محدودیت منابع','نقطه عطف و تعهد متأثر','اثر زمانی و عملیاتی','اثر مالی با مدرک معتبر'].map((x,i)=>'<div class="app-flow-node"><b>0'+(i+1)+'</b><span>'+x+'</span></div>').join('')+'</div>'+empty('مقدار اثر مالی واقعی (ERP) محاسبه نشده است','ارقام فوق سناریوی نمایشی (DEMO_SYNTHETIC) هستند؛ بدون amount، currency، period، method، provenance و approval، مقدار واقعی مالی NULL می‌ماند.','NOT YET QUANTIFIED'));
  if(view==='conflicts')return card('تعارض منابع مشترک (ایستگاه آزمون و قطعات بحرانی)',Object.keys(scenarios).map(k=>'<div class="app-list-row"><div><strong>'+esc(scenarios[k].title)+'</strong><p>'+esc(scenarios[k].constraint)+'</p>'+badge('DEMO_SYNTHETIC','warn')+'</div>'+button('بررسی قید و گزینه‌ها','go-interventions','primary','data-scenario="'+k+'"')+'</div>').join('')+empty('تعارض واقعی متصل نیست','تعارض فقط با بارگذاری زمان‌مند تقاضا و ظرفیت مشترک قابل تأیید است.','INTERNAL SOURCE REQUIRED'));
- if(view==='evidence')return card('یکپارچگی و کیفیت شواهد',table(['کنترل','قاعده','وضعیت فعلی'],[['منشأ هر رکورد','طبقه داده، مرجع، زمان و مالک',badge('بخشی در fixture','warn')],['شناسه‌های داخلی','تطبیق با منبع معتبر',badge('متصل نیست','bad')],['ارقام مالی','واحد، دوره، روش، تأیید',badge('NOT YET QUANTIFIED','warn')],['روند زمانی','چند snapshot معتبر',badge('INSUFFICIENT HISTORY','warn')],['پروژه و تعهد','مرجع داخلی و تأیید مالک',badge('INTERNAL SOURCE REQUIRED','warn')]]));
+ if(view==='evidence')return simulationHistory()+card('یکپارچگی و کیفیت شواهد',table(['کنترل','قاعده','وضعیت فعلی'],[['منشأ هر رکورد','طبقه داده، مرجع، زمان و مالک',badge('بخشی در fixture','warn')],['شناسه‌های داخلی','تطبیق با منبع معتبر',badge('متصل نیست','bad')],['ارقام مالی','واحد، دوره، روش، تأیید',badge('NOT YET QUANTIFIED','warn')],['روند زمانی','چند snapshot معتبر',badge('INSUFFICIENT HISTORY','warn')],['پروژه و تعهد','مرجع داخلی و تأیید مالک',badge('INTERNAL SOURCE REQUIRED','warn')]]));
 
  const riskProjs=filterProjectsList(ceoProjects);
  return mang07RiskPanel()+metrics([
@@ -733,10 +670,24 @@ function viewRisk(view){
  ])))+card('ماتریس طبقه‌بندی ارزش و ریسک', '<div class="app-risk-map"><div class="app-risk-axis"><span>اثر عملیاتی / مالی ↑</span><span>فوریت →</span></div><div class="app-risk-grid"><div><strong>مداخله فوری (بحرانی · ۴ پروژه در کل سناریو)</strong><p>P-1405 (۱,۲۰۰ میلیارد · ۵ روز) و P-1398 (۸۵۰ میلیارد · ۱۲ روز)</p></div><div><strong>پایش ویژه (پرریسک · ۳ پروژه)</strong><p>P-1412 (۶۰۰ میلیارد · ۲۸ روز) و P-1395 (۴۰۰ میلیارد · ۳۵ روز)</p></div><div><strong>نیازمند توجه (۵ پروژه)</strong><p>P-1401 (۲۳۰ میلیارد · ۵۵ روز) و سایر پروژه‌های تعمیراتی</p></div><div><strong>وضعیت قابل قبول (مطلوب · ۸ پروژه)</strong><p>پروژه‌های فاقد انحراف بحرانی در افق فعلی</p></div></div></div>'+empty('نقاط ریسک واقعی ERP رسم نشده‌اند','ارقام جدول فوق مربوط به سناریوی نمایشی (DEMO_SYNTHETIC) نمای مدیرعامل است.','INTERNAL SOURCE REQUIRED'));
 }
 
+function simulationHistory() {
+ const saved=db.events.filter(entry=>entry.type==='relationship-simulation'||entry.type==='constraint-simulation');
+ if(!saved.length)return '';
+ return card('سناریوهای آزمایشی ثبت‌شده',table(['زمان ثبت','نوع','روابط','ورودی و خروجی سناریو'],saved.map(entry=>[
+   esc(entry.createdAt), entry.type==='relationship-simulation'?'شبیه‌سازی رابطه':'شبیه‌سازی قیود',
+   esc(Object.values(entry.snapshot?.links||{}).filter(Boolean).join(' · ')||entry.snapshot?.scenario||'—'),
+   '<details><summary>مشاهده جزئیات محاسبه</summary><pre dir="ltr" style="white-space:pre-wrap;max-width:70ch;overflow-wrap:anywhere">'+esc(JSON.stringify(entry.snapshot,null,2))+'</pre></details>'
+ ])));
+}
+function constraintSimulationResult(snapshot) {
+ return card('نتیجه آزمون قیود',table(['گزینه','زمان','هزینه','نتیجه'],snapshot.options.map(option=>[
+   esc(option.name),fa(option.time)+' روز',fa(option.cost)+' میلیون تومان',badge(option.feasible?'از نظر قیود ورودی قابل‌بررسی':'ناشدنی',option.feasible?'good':'bad')
+ ]))+'<p class="app-muted">آزمون فقط بر اساس ورودی‌های دموست. تأیید مالک منابع و تعهدات واقعی همچنان لازم است.</p>');
+}
 function viewInterventions(view){
  const activeScen=db.activeFilter?.scenario||db.selectedScenario||'part';
  if(view==='compare')return card('مقایسه گزینه‌ها و پیامدها','<div class="app-filter-row">'+select('سناریو','scenario',Object.keys(scenarios).map(k=>[k,scenarios[k].id+' · '+scenarios[k].title])).replace('<option value="'+activeScen+'">','<option value="'+activeScen+'" selected>')+'</div><div id="option-compare">'+scenarioOptions(activeScen)+'</div>');
- if(view==='simulate')return card('شبیه‌سازی سناریوی زمان‌مند','<div class="app-notice warn">ورودی‌ها در محدوده سناریوی ساختگی باقی می‌مانند. این ابزار زمان/هزینه فرضی را بررسی می‌کند و برنامه‌ریزی ERP یا تخصیص واقعی منابع نیست.</div>'+form('simulation',[select('سناریو','scenario',Object.keys(scenarios).map(k=>[k,scenarios[k].id+' · '+scenarios[k].title])),input('پنجره زمانی (روز)','window','3','number'),input('بودجه فرضی (میلیون تومان)','budget','200','number'),input('ظرفیت افزوده (ساعت یا واحد)','capacity','8','number')],'اجرای آزمون قید')+'<div id="simulation-result"></div>');
+ if(view==='simulate')return card('شبیه‌سازی سناریوی زمان‌مند','<div class="app-notice warn">ورودی‌ها در محدوده سناریوی ساختگی باقی می‌مانند. این ابزار زمان/هزینه فرضی را بررسی می‌کند و برنامه‌ریزی ERP یا تخصیص واقعی منابع نیست.</div>'+form('simulation',[select('سناریو','scenario',Object.keys(scenarios).map(k=>[k,scenarios[k].id+' · '+scenarios[k].title])),input('پنجره زمانی (روز)','window','3','number'),input('بودجه فرضی (میلیون تومان)','budget','200','number'),input('ظرفیت افزوده (ساعت یا واحد)','capacity','8','number')],'اجرای آزمون قید')+'<div id="simulation-result">'+(db.events.find(row=>row.type==='constraint-simulation')?.snapshot ? constraintSimulationResult(db.events.find(row=>row.type==='constraint-simulation').snapshot) : '')+'</div>');
  return card('پنجره‌های مداخله فعال (متصل به کارت «مهلت‌های مداخله نزدیک»)',Object.keys(scenarios).map(k=>'<article class="app-intervention" style="'+(db.activeFilter?.scenario===k?'border:2px solid #2878cf;background:#f4f9fd':'')+'"><div><span class="app-eyebrow">'+scenarios[k].id+' · پروژه '+esc(scenarios[k].project_id)+' · DEMO SYNTHETIC</span><h3>'+esc(scenarios[k].title)+'</h3><p><b>نیاز و مهلت:</b> '+esc(scenarios[k].need)+'</p><p><b>قید سخت:</b> '+esc(scenarios[k].constraint)+'</p></div><div style="display:flex;gap:8px;flex-wrap:wrap">'+button('مقایسه گزینه‌ها','go-compare','primary','data-scenario="'+k+'"')+' '+button('بازکردن Decision Brief','legacy-detail','secondary','data-detail="'+(k==='part'?'1':'2')+'"')+'</div></article>').join('')+empty('پنجره مداخله واقعی قابل محاسبه نیست','مهلت تصمیم، lead time معتبر، تاریخ snapshot و اثر بر تعهدات باید از منابع داخلی بیاید.','INTERNAL SOURCE REQUIRED'));
 }
 function scenarioOptions(key){const s=scenarios[key]||scenarios.part;return '<div class="app-notice warn">'+s.id+' · تمام مقادیر این سناریو ساختگی‌اند. '+esc(s.constraint)+'</div>'+table(['گزینه','زمان (روز)','هزینه فرضی (میلیون تومان)','قید سخت','نتیجه ارزیابی','اقدام'],s.options.map(o=>{const ok=o.ok;return [esc(o.name),fa(o.time),fa(o.cost),esc(o.cap),badge(ok?'از نظر قیود نمونه قابل‌بررسی':'ناشدنی در وضعیت فعلی',ok?'good':'bad'),button('ارزیابی','evaluate-option','secondary','data-scenario="'+key+'" data-option="'+o.id+'"')]}))+'<div id="option-evaluation" class="app-evaluation">'+empty('گزینه‌ای ارزیابی نشده است','ارزیابی را اجرا کنید تا منطق زمان، هزینه و نقض تعهدات نمایش داده شود.','EVALUATION PENDING')+'</div>';}
@@ -1071,9 +1022,43 @@ function render(key,view){
  const t=$('#entityTitle');if(t)t.textContent=LABELS[key];
  const d=$('#entityDesc');if(d)d.textContent=db.activeFilter?.context||'صفحه متصل به مدل داده مشترک · برچسب منشأ و محدودیت شواهد در تمام رکوردها حفظ می‌شود.';
  const pt=$('#entityPanelTitle');if(pt)pt.textContent=title;
+ mountRelationships(container,key,safeView);
+ $$('form[data-form^="mang07-"]',container).forEach(updateLivePreview);
 }
 
+function mountRelationships(container,page,view) {
+ const hosts={risk:['impact'],projects:['chain'],resources:['capacity']};
+ if(!hosts[page]?.includes(view)||!window.PVPTRelationships)return;
+ const target=document.createElement('div');
+ target.dataset.pvptRelations='';
+ $('.app-page-content',container)?.prepend(target);
+ window.PVPTRelationships.mount(target,{
+   catalog,cases:mang07Cases,cashStages:ceoCashStages,
+   projectId:db.activeFilter?.project||(page==='projects'?db.selectedProject:null),
+   resourceId:page==='resources'?relationResourceId:null,
+   compare:mang07Evaluate,challenge:mang07Challenge,delta:mang07Delta,
+   async saveSimulation(snapshot) {
+     if(!canWrite('legacy'))return false;
+     db.events.unshift({id:mang07Id(),type:'relationship-simulation',data_class:'DEMO_SYNTHETIC',createdAt:new Date().toISOString(),snapshot});
+     return commitLegacy('ثبت شد','سناریوی آزمایشی در پایگاه داده ثبت شد.',false);
+   },
+   navigate(nextPage,nextView,caseId,id){
+     if(caseId&&mang07Cases.some(item=>item.id===caseId)){
+       mang07CaseId=caseId;
+       mang07EffectId=nextPage==='issues'?(id||''):'';
+       mang07OptionId=nextPage==='solutions'?(id||''):'';
+     }
+     if(nextPage==='resources'&&nextView==='capacity')relationResourceId=id||'';
+     if(nextPage==='projects'&&id){
+       const project=catalog.projects.find(row=>row.project_id===id);
+       if(project){db.selectedProject=id;return navigateFromHome({page:nextPage,view:nextView,project:id});}
+     }
+     go(nextPage,nextView);
+   }
+ });
+}
 function appOpenPage(key,view,preserveFilter=false){
+ if(!databaseReady)return;
  if(!KEYS.includes(key))key='home';
  if(!preserveFilter)db.activeFilter=null;
  if(key!=='portfolio'||currentPage!=='portfolio'||!preserveFilter)assignmentFamily=null;
@@ -1233,18 +1218,6 @@ const mang07GateState = {pending:'در انتظار بررسی', verified:'تأ�
 let mang07Cases = [];
 let mang07CaseId = '';
 let mang07OptionId = '';
-let mang07Stored = null;
-try {
-  mang07Stored = localStorage.getItem(mang07Key);
-  const stored = JSON.parse(mang07Stored || '[]');
-  if (Array.isArray(stored)) mang07Cases = stored;
-} catch {}
-function mang07Save() {
-  if (localStorage.getItem(mang07Key)!==mang07Stored) throw Error('پرونده در تب دیگری تغییر کرده است. نسخهٔ تازه بازخوانی شد؛ ورودی را دوباره بررسی کنید.');
-  const json = JSON.stringify(mang07Cases);
-  localStorage.setItem(mang07Key,json);
-  mang07Stored = json;
-}
 function mang07Id() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 15) | 64;
@@ -1399,6 +1372,71 @@ function mang07OptionPanel() {
     ])
   ],'ذخیره پیش‌نویس')+(option?mang07Open('پیش‌نویس گزینهٔ دیگر','mang07-edit-option',item.id):''));
 }
+function readOptionDraft(item,v) {
+ const gates=Object.fromEntries(Object.keys(mang07GateLabels).map(key=>[key,{
+   status:v['gate-'+key],reference:v['ref-'+key].trim(),reviewer:v['reviewer-'+key].trim()
+ }]));
+ return {title:v.title.trim(),description:v.description.trim(),owner:v.owner.trim(),proposer:v.proposer.trim(),start:mang07Amount(v.start),
+   duration:mang07Nonnegative(v.duration),resource:v.resource,quantity:v.quantity.trim(),reservation:v.reservation.trim(),
+   cost:mang07Amount(v.cost),budget:mang07Amount(v.budget),
+   effects:Object.fromEntries(item.effects.map(row=>[row.id,mang07Nonnegative(v['effect-'+row.id])])),
+   effectVersions:Object.fromEntries(item.effects.map(row=>[row.id,row.versions.length+1])),gates};
+}
+function updateLivePreview(form) {
+ const type=form.dataset.form;
+ if(!['mang07-effect','mang07-option','mang07-condition','mang07-case'].includes(type))return;
+ let target=form.nextElementSibling;
+ if(!target?.hasAttribute('data-pvpt-live-preview')){
+   target=document.createElement('section');
+   target.dataset.pvptLivePreview=type;
+   target.setAttribute('aria-live','polite');
+   target.className='app-notice';
+   form.after(target);
+ }
+ const formData=new FormData(form);
+ const v=Object.fromEntries(formData.entries());
+ const item=mang07Cases.find(record=>record.id===v.caseId);
+ const deltaLabel='پیش‌بینی بدون اقدام − خط مبنا';
+ try {
+   if(type==='mang07-case'){
+     const orderIds=formData.getAll('orders');
+     const linked=catalog.operations.filter(op=>op.machine_resource_id?.split(' (')[0]===v.resource&&(!orderIds.length||orderIds.includes(op.production_order_id)));
+     target.textContent=v.resource?'فعالیت‌های وابسته به منبع انتخابی: '+fa(linked.length)+' · '+linked.map(op=>op.operation_id).join('، ')+' · اثر زمانی نیازمند برآورد تعهد است.':'با انتخاب منبع، فعالیت‌های مرتبط نمایش داده می‌شوند.';
+     return;
+   }
+   if(!item){target.textContent='پرونده انتخاب نشده است.';return;}
+   if(type==='mang07-condition'){
+     const changed=mang07Amount(v.downtime)!==item.downtime;
+     target.textContent=changed?'تغییر مدت توقف، '+fa(item.effects.length)+' برآورد را نیازمند بازبینی می‌کند. تاریخ تعهد به محض ورود تخمین معتبر محاسبه می‌شود.':'برآورد فعلی تا ثبت تغییر معتبر است.';
+     return;
+   }
+   if(type==='mang07-effect'){
+     const typeName=mang07Type[v.type];
+     if(!typeName){target.textContent='برای محاسبهٔ اثر، نوع تعهد را انتخاب کنید.';return;}
+     const previous=item.effects.find(row=>row.id===v.rowId);
+     const baseline=mang07Nonnegative(v.baseline), noAction=mang07Nonnegative(v.noAction);
+     const deadline=mang07Amount(v.deadline);
+     const current=mang07Delta(noAction,baseline,{paired:Boolean(v.paired)});
+     const unit=v.type==='cost'?'میلیون تومان':'روز نسبی';
+     const difference=deadline===null?null:mang07Delta(noAction,deadline);
+     const rate=v.type==='collection'?mang07Amount(v.rate):null;
+     const amount=v.type==='collection'?mang07Amount(v.amount):null;
+     target.innerHTML='<strong>پیش‌نمایش اثر '+esc(typeName)+'</strong><p>'+deltaLabel+' · '+esc(mang07Value(noAction))+' − '+esc(mang07Value(baseline))+' = <b data-live-delta>'+esc(mang07Value(current))+'</b> '+unit+
+       (previous?' · مقدار پیشین '+esc(mang07Value(mang07Challenge(previous))):'')+'</p>'+
+       (deadline===null?'':'<p>فاصله از موعد سخت: '+esc(mang07Value(difference))+' '+unit+'</p>')+
+       (v.type==='collection'?'<p>ارزش زمانی هر روز: '+esc(mang07Money(mang07MoneyRate({rate,amount},1)))+' میلیون تومان · مبلغ × نرخ سالانه ÷ ۳۶۵</p>':'');
+     return;
+   }
+   const draft=readOptionDraft(item,v);
+   const result=mang07Evaluate(item,draft), previous=item.options.find(option=>option.id===v.optionId);
+   const prior=previous?mang07Evaluate(item,previous).net:null;
+   target.innerHTML='<strong>پیش‌نمایش زندهٔ راهکار</strong><p>خالص اقلام عدددار: <b data-live-net>'+esc(mang07Money(result.net))+'</b> میلیون تومان'+(previous?' · قبل: '+esc(mang07Money(prior)):'')+' · '+(result.incomplete?'پوشش ناقص':'پوشش کامل')+'</p><p>'+esc(result.methodology)+'</p>'+
+     table(['سفارش / تعهد','بدون اقدام','با ورودی فعلی','روز بازیافته یا تغییر هزینه'],result.rows.map(entry=>[
+       esc(entry.row.order+' · '+mang07Type[entry.row.type]),esc(mang07Value(entry.noAction)),esc(mang07Value(entry.withOption)),esc(mang07Value(entry.recovered))
+     ]))+'<p>امکان‌پذیری: '+(result.feasible?'قابل بررسی برای تصویب':'تصویب مسدود')+'</p>'+
+     '<ul>'+Object.entries(result.gates).map(([key,gate])=>'<li>'+esc(mang07GateLabels[key]+' · '+(mang07GateState[gate.status]||gate.status)+' · '+gate.reason)+'</li>').join('')+'</ul>';
+ } catch(error){target.textContent=error.message;}
+}
 function mang07Evaluate(item, option) {
   const result = mang07Compare(item,option);
   const coveredOrders = item.orders.length ? item.orders : [...new Set(item.effects.map(row=>row.order))];
@@ -1439,27 +1477,17 @@ function mang07ComparePanel(item, option) {
   }
   return '<div class="pvpt-case-option" data-option-id="'+esc(option.id)+'" data-feasible="'+result.feasible+'">'+card(esc(option.title),report+actions)+'</div>';
 }
-function mang07SaveAndRender() {
-  try {
-    mang07Save();
-  } catch (error) {
-    try {
-      mang07Stored = localStorage.getItem(mang07Key);
-      const current = JSON.parse(mang07Stored || '[]');
-      mang07Cases = Array.isArray(current)?current:[];
-    } catch { mang07Cases = []; }
-    rerender();
-    throw Error(error.name==='Error'?error.message:'ذخیره‌سازی محلی انجام نشد. تغییر ثبت نشده است.');
-  }
-  rerender();
+async function mang07SaveAndRender() {
+ await saveSection('cases',mang07Cases);
+ rerender();
 }
 function mang07CaseRequired(v) {
   const item = mang07Cases.find(record => record.id === v.caseId);
   if (!item) throw Error('پرونده معتبر نیست.');
   return item;
 }
-function mang07Submit(f, v) {
-  if (mang07CloseForm(f,v)) return;
+async function mang07Submit(f, v) {
+  if (await mang07CloseForm(f,v)) return;
   const stamp = new Date().toISOString();
   const type = f.dataset.form;
   if (type === 'mang07-case') {
@@ -1472,7 +1500,7 @@ function mang07Submit(f, v) {
     mang07Cases.unshift(item);
     mang07CaseId = item.id;
     mang07EffectId = '';
-    mang07SaveAndRender();
+    await mang07SaveAndRender();
     return;
   }
   const item = mang07CaseRequired(v);
@@ -1505,17 +1533,10 @@ function mang07Submit(f, v) {
   } else if (type === 'mang07-option') {
     const previous = item.options.find(option=>option.id===v.optionId);
     if ((v.optionId && !previous) || !v.title.trim()) throw Error('عنوان یا شناسهٔ راهکار معتبر نیست.');
-    const gates = Object.fromEntries(Object.keys(mang07GateLabels).map(key=>{
-      const status = v['gate-'+key];
-      const reference = v['ref-'+key].trim(), reviewer = v['reviewer-'+key].trim();
-      if (!Object.hasOwn(mang07GateState,status) || (status!=='pending' && (!reference || !reviewer))) throw Error('برای نتیجهٔ بررسی هر قید، مرجع و مسئول را ثبت کنید.');
-      return [key,{status,reference,reviewer}];
-    }));
-    if (v.resource && !mang07Resources().has(v.resource) && !catalog.suppliers.some(source=>source.supplier_id===v.resource)) throw Error('منبع راهکار معتبر نیست.');
-    const option = {id:previous?.id??mang07Id(),title:v.title.trim(),description:v.description.trim(),owner:v.owner.trim(),proposer:v.proposer.trim(),start:mang07Amount(v.start),
-      duration:mang07Nonnegative(v.duration),resource:v.resource,quantity:v.quantity.trim(),reservation:v.reservation.trim(),cost:mang07Amount(v.cost),budget:mang07Amount(v.budget),
-      effects:Object.fromEntries(item.effects.map(row=>[row.id,mang07Nonnegative(v['effect-'+row.id])])),
-      effectVersions:Object.fromEntries(item.effects.map(row=>[row.id,row.versions.length+1])),gates,at:stamp};
+    const draft=readOptionDraft(item,v);
+    if(Object.values(draft.gates).some(({status,reference,reviewer})=>!Object.hasOwn(mang07GateState,status)||(status!=='pending'&&(!reference||!reviewer)))) throw Error('برای نتیجهٔ بررسی هر قید، مرجع و مسئول را ثبت کنید.');
+    if(draft.resource&&!mang07Resources().has(draft.resource)&&!catalog.suppliers.some(source=>source.supplier_id===draft.resource)) throw Error('منبع راهکار معتبر نیست.');
+    const option={...draft,id:previous?.id??mang07Id(),at:stamp};
     if (previous) item.options[item.options.indexOf(previous)] = option;
     else item.options.push(option);
     mang07OptionId = '';
@@ -1535,9 +1556,9 @@ function mang07Submit(f, v) {
         reviewedGates:structuredClone(option.gates),gates:structuredClone(result.gates),optionAt:option.at,net:result.net,partial:result.incomplete};
     }
   }
-  mang07SaveAndRender();
+  await mang07SaveAndRender();
 }
-function mang07Action(action) {
+async function mang07Action(action) {
   if (action.dataset.action==='mang07-new-case') {
     mang07CaseId = '';
     go('issues','register');
@@ -1553,10 +1574,10 @@ function mang07Action(action) {
   } else if (type==='mang07-options' || type==='mang07-edit-option') {
     mang07OptionId = action.dataset.optionId ?? '';
     go('solutions','register');
-  } else if (type==='mang07-start' && item.decision?.status==='approved') {
+  } else if (type==='mang07-start' && item.decision?.status==='approved' && canWrite('cases')) {
     item.decision.status = 'started';
     item.decision.startedAt = new Date().toISOString();
-    mang07SaveAndRender();
+    await mang07SaveAndRender();
   } else if (type==='mang07-open-outcome') {
     go('memory','outcomes');
   }
@@ -1656,7 +1677,7 @@ function mang07MemoryPanel(view){
  return panels.length?'<div data-mang07-memory="'+esc(view)+'">'+panels.join('')+'</div>':'';
 }
 
-function mang07CloseForm(f,v){
+async function mang07CloseForm(f,v){
  const type=f.dataset.form;
  if(!['mang07-outcome','mang07-lesson'].includes(type))return false;
  const c=mang07Cases.find(item=>item.id===f.dataset.case);
@@ -1697,17 +1718,19 @@ function mang07CloseForm(f,v){
    });
   }
  }
- mang07SaveAndRender();
+ await mang07SaveAndRender();
  notify('ثبت شد','اطلاعات در تاریخچهٔ همین پروندهٔ آموزشی ثبت شد.');
  return true;
 }
 
-function submitForm(f){
+async function submitForm(f){
  const fd=new FormData(f),v=Object.fromEntries(fd.entries()),type=f.dataset.form,stamp=new Date().toISOString();
  if(type.startsWith('mang07-')){
-   try{mang07Submit(f,v);}catch(error){notify('ثبت نشد',error.message);}
+   if(!canWrite('cases'))return;
+   try{await mang07Submit(f,v);}catch(error){notify('ثبت نشد',error.message);}
    return;
  }
+ if(type!=='simulation'&&!canWrite('legacy'))return;
  if(type==='resource'){const r={...v,id:'LOCAL-RES-'+Date.now(),resource_type:v.type,capacity:Number(v.capacity)||0,data_class:'DEMO_SYNTHETIC',createdAt:stamp};db.resources.unshift(r);db.catalogResources.unshift(r);catalog.resources.unshift(r);}
  else if(type==='decision'){
    const [sid,oid]=String(v.option).split('|');const scenario=scenarios[sid]||scenarios[v.scenario];const opt=(scenarios[sid]||scenarios[v.scenario]).options.find(o=>o.id===(oid||v.option));
@@ -1752,18 +1775,29 @@ function submitForm(f){
  }
  else if(type==='supplier'){const sup={supplier_id:'LOCAL-'+Date.now(),name:v.name,part:v.part,date:v.date,data_class:'DEMO_SYNTHETIC'};catalog.suppliers.unshift(sup);db.suppliers.unshift(sup);}
  else if(type==='simulation'){
-   const s=scenarios[v.scenario]||scenarios.part;const window=Number(v.window),budget=Number(v.budget),cap=Number(v.capacity);
-   const opts=s.options.map(o=>({name:o.name,time:o.time,cost:o.cost,feasible:o.ok&&o.time<=window&&o.cost<=budget&&(v.scenario!=='capacity'||o.id!=='overtime'||cap>=6)}));
-   const result=$('#simulation-result');if(result)result.innerHTML=card('نتیجه آزمون قیود',table(['گزینه','زمان','هزینه','نتیجه'],opts.map(o=>[esc(o.name),fa(o.time)+' روز',fa(o.cost)+' میلیون تومان',badge(o.feasible?'از نظر قیود ورودی قابل‌بررسی':'ناشدنی',''+(o.feasible?'good':'bad'))]))+'<p class="app-muted">آزمون فقط بر اساس ورودی‌های دموست؛ تأیید مالک منابع و تعهدات واقعی همچنان لازم است.</p>');notify('آزمون تمام شد','نتیجه محاسبه در صفحه نمایش داده شد.');return;}
- save();syncHomeKpis();rerender();notify('ثبت شد','رکورد در ذخیره‌سازی محلی همین مرورگر نگهداری شد.');
+   if(!canWrite('legacy'))return;
+   const scenario=scenarios[v.scenario];
+   const inputs=[v.window,v.budget,v.capacity].map(value=>value.trim()===''?NaN:Number(value));
+   if(!scenario||inputs.some(value=>!Number.isFinite(value)||value<0)){notify('خطای ورودی','ورودی‌های نامنفی سناریو را وارد کنید.');return;}
+   const [windowDays,budget,capacity]=inputs;
+   const options=scenario.options.map(option=>({name:option.name,time:option.time,cost:option.cost,
+     feasible:option.ok&&option.time<=windowDays&&option.cost<=budget&&(v.scenario!=='capacity'||option.id!=='overtime'||capacity>=6)}));
+   const snapshot={scenario:v.scenario,windowDays,budget,capacity,options};
+   db.events.unshift({id:mang07Id(),type:'constraint-simulation',data_class:'DEMO_SYNTHETIC',createdAt:stamp,snapshot});
+   if(await commitLegacy('آزمون ثبت شد','نتیجه در پایگاه داده ثبت شد.',false)){
+     const result=$('#simulation-result');
+     if(result)result.innerHTML=constraintSimulationResult(snapshot);
+   }
+   return;
+ }
+ await commitLegacy('ثبت شد','رکورد در پایگاه دادهٔ دمو ثبت شد.');
 }
 
 document.addEventListener('click',function(e){
- const chosen=e.target.closest('[data-select]');if(!chosen)return;
+ const chosen=e.target.closest('[data-select]');if(!chosen||!databaseReady||busySections.has('legacy'))return;
  const sid=chosen.dataset.select,opt=(scenarios[sid]||{}).options?.find(o=>o.id===chosen.dataset.option);
  if(!opt||!opt.ok)return;
  db.decisions.unshift({title:scenarios[sid].title,scenario:sid,optionId:opt.id,optionName:opt.name,owner:'مدیر مسئول (دمو)',rationale:'ثبت انتخاب از Decision Brief؛ تأیید مالک منبع و پیش‌شرط‌های عملیاتی هنوز لازم است.',status:'SELECTED DEMO',feasibility:'FEASIBLE · DEMO ONLY',data_class:'DEMO_SYNTHETIC',createdAt:new Date().toISOString()});
- save();syncHomeKpis();
 },true);
 
 document.addEventListener('click',function(e){
@@ -1780,7 +1814,7 @@ document.addEventListener('click',function(e){
  }
  e.preventDefault();e.stopImmediatePropagation();
  if(a.startsWith('mang07-')){
-   try{mang07Action(action);}catch(error){notify('ثبت نشد',error.message);}
+   mang07Action(action).catch(error=>notify('ثبت نشد',error.message));
    return;
  }
  if(a==='propose-solution-for-issue'){
@@ -1790,6 +1824,7 @@ document.addEventListener('click',function(e){
    return;
  }
  if(a==='approve-solution'){
+   if(!canWrite('legacy'))return;
    const solId = action.dataset.solutionId;
    const s = (db.solutions.length ? db.solutions : ceoDetailedSolutions).find(x => x.id === solId);
    if (s) {
@@ -1802,24 +1837,19 @@ document.addEventListener('click',function(e){
      record.status = 'APPROVED';
      record.status_fa = 'مصوب مدیرعامل / شروع ثبت نشده';
      record.approved_at = new Date().toLocaleDateString('fa-IR') + ' ' + new Date().toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'});
-     save();
-     syncHomeKpis();
-     rerender();
-     notify('تصویب شد ✓', 'راهکار ' + solId + ' در دمو تصویب شد. آغاز اجرا جداگانه ثبت می‌شود.');
+     void commitLegacy('تصویب شد ✓', 'راهکار '+solId+' در دمو تصویب شد. آغاز اجرا جداگانه ثبت می‌شود.');
    }
    return;
  }
  if(a==='reject-solution'){
+   if(!canWrite('legacy'))return;
    const solId = action.dataset.solutionId;
    if (!db.solutions || !db.solutions.length) db.solutions = [...ceoDetailedSolutions];
    const s = db.solutions.find(x => x.id === solId);
    if (s) {
      s.status = 'REJECTED';
      s.status_fa = 'رد شد / نیازمند اصلاح';
-     save();
-     syncHomeKpis();
-     rerender();
-     notify('رد شد', 'راهکار ' + solId + ' جهت بازنگری و اصلاح عودت داده شد.');
+     void commitLegacy('رد شد','راهکار '+solId+' جهت بازنگری و اصلاح عودت داده شد.');
    }
    return;
  }
@@ -1836,15 +1866,15 @@ document.addEventListener('click',function(e){
  if(a==='project-chain'){if(action.dataset.id)db.selectedProject=action.dataset.id;go('projects','chain',true);return;}
  if(a==='issue-detail'){const x=db.issues[Number(action.dataset.index)];if(x)openInfo('جزئیات ایشو',Object.entries(x).map(([k,v])=>'<p><b>'+esc(k)+'</b>: '+esc(v)+'</p>').join(''));return;}
   if(a==='set-theme'){
-    window.pvptApplyTheme(action.dataset.theme);
-    rerender();
-    notify(currentLang==='en'?'Theme Updated':'پوسته تغییر یافت', action.dataset.theme==='factory'?(currentLang==='en'?'Factory Floor Theme Active':'پوسته صنعتی کارخانه فعال شد'):action.dataset.theme==='dark'?(currentLang==='en'?'Dark Night Theme Active':'پوسته تاریک شب فعال شد'):(currentLang==='en'?'Light Theme Active':'پوسته روشن فعال شد'));
+    void window.pvptApplyTheme(action.dataset.theme).then(ok=>{
+      if(ok)notify(currentLang==='en'?'Theme Updated':'پوسته تغییر یافت','تنظیمات در پایگاه داده ثبت شد.');
+    });
     return;
   }
   if(a==='set-lang'){
-    window.pvptApplyLanguage(action.dataset.lang);
-    rerender();
-    notify(action.dataset.lang==='en'?'Language Switched':'زبان تغییر یافت', action.dataset.lang==='en'?'English LTR Mode Active':'زبان فارسی (راست‌به‌چپ) فعال شد');
+    void window.pvptApplyLanguage(action.dataset.lang).then(ok=>{
+      if(ok)notify(currentLang==='en'?'Language Switched':'زبان تغییر یافت','تنظیمات در پایگاه داده ثبت شد.');
+    });
     return;
   }
   if(a==='set-home-proj-tab'){
@@ -1854,12 +1884,14 @@ document.addEventListener('click',function(e){
     return;
   }
   if(a==='open-memory'){go('memory','decisions');return;}
-  if(a==='delete-decision'){db.decisions.splice(Number(action.dataset.index),1);save();syncHomeKpis();rerender();notify('حذف شد','رکورد محلی حذف شد.');return;}
-  if(a==='lesson-status'){const l=db.lessons[Number(action.dataset.index)];if(l){const order=['PROPOSED','REVIEWED','APPROVED','RETIRED'];l.status=order[(order.indexOf(l.status)+1)%order.length];save();rerender();}return;}
+  if(a==='delete-decision'){if(!canWrite('legacy'))return;db.decisions.splice(Number(action.dataset.index),1);void commitLegacy('حذف شد','رکورد دمو از پایگاه داده حذف شد.');return;}
+  if(a==='lesson-status'){if(!canWrite('legacy'))return;const l=db.lessons[Number(action.dataset.index)];if(l){const order=['PROPOSED','REVIEWED','APPROVED','RETIRED'];l.status=order[(order.indexOf(l.status)+1)%order.length];void commitLegacy();}return;}
 });
 document.addEventListener('submit',function(e){const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();submitForm(f);},true);
 function handleWorkbenchChange(e){
  if (e.type==='change') mang07EffectChange(e.target);
+ const edited=e.target.closest('form[data-form^="mang07-"]');
+ if(edited)updateLivePreview(edited);
  if(e.type==='change'&&e.target.matches('[name=assignmentFamily]')){
    assignmentFamily=e.target.value;
    rerender();
@@ -1876,30 +1908,28 @@ function handleWorkbenchChange(e){
    rerender();
    if(focusName==='proj1404Search'){const el=$('[name=proj1404Search]');if(el){el.focus();if(cursorPos!==null)el.setSelectionRange(cursorPos,cursorPos);}}
  }
- if(e.target.matches('[name=scenario]')&&$('#option-compare')){$('#option-compare').innerHTML=scenarioOptions(e.target.value);db.selectedScenario=e.target.value;save();}
+ if(e.target.matches('[name=scenario]')&&$('#option-compare')){$('#option-compare').innerHTML=scenarioOptions(e.target.value);db.selectedScenario=e.target.value;}
 }
 document.addEventListener('change',handleWorkbenchChange,true);
 document.addEventListener('input',handleWorkbenchChange,true);
 function openInfo(title,body){const modal=$('#modal');if(!modal)return;$('#modalTitle').textContent=title;$('#modalBody').innerHTML='<div class="app-info-modal">'+body+'</div>';modal.classList.add('open');}
 window.openPage=appOpenPage;
-window.PVPT={render,go,db,navigateFromHome,getCatalog:()=>catalog,openProductDetail:(id)=>{const cardEl=$('[data-action="product-detail"][data-id="'+id+'"]')?.closest('.app-product');const code=cardEl?.querySelector('code')?.textContent;const label=cardEl?.querySelector('strong')?.textContent;const p=catalog.products.find(x=>x.product_id===id)||catalog.products.find(x=>x.product_id===code)||catalog.products.find(x=>(x.name||x.model_code)===label);openInfo('جزئیات محصول',p?'<p><b>'+esc(p.name||p.model_code)+'</b></p><p>شناسه: '+esc(p.product_id)+'</p><p>خانواده: '+esc((catalog.families.find(f=>f.family_id===p.family_id)||{}).label_fa||'نامشخص')+'</p><p>طبقه داده: '+esc(p.data_class||p.source_status||'UNKNOWN')+'</p><p><a target="_blank" rel="noopener" href="'+esc(p.source_reference||p.source_url||officialUrl)+'">مرجع محصول</a></p>':'<p>شناسه محصول در کاتالوگ بارگذاری‌شده پیدا نشد.</p>');}};
+window.PVPT={render,go,db,canWrite,saveModal:()=>commitLegacy(null,null,false),navigateFromHome,getCatalog:()=>catalog,openProductDetail:(id)=>{const cardEl=$('[data-action="product-detail"][data-id="'+id+'"]')?.closest('.app-product');const code=cardEl?.querySelector('code')?.textContent;const label=cardEl?.querySelector('strong')?.textContent;const p=catalog.products.find(x=>x.product_id===id)||catalog.products.find(x=>x.product_id===code)||catalog.products.find(x=>(x.name||x.model_code)===label);openInfo('جزئیات محصول',p?'<p><b>'+esc(p.name||p.model_code)+'</b></p><p>شناسه: '+esc(p.product_id)+'</p><p>خانواده: '+esc((catalog.families.find(f=>f.family_id===p.family_id)||{}).label_fa||'نامشخص')+'</p><p>طبقه داده: '+esc(p.data_class||p.source_status||'UNKNOWN')+'</p><p><a target="_blank" rel="noopener" href="'+esc(p.source_reference||p.source_url||officialUrl)+'">مرجع محصول</a></p>':'<p>شناسه محصول در کاتالوگ بارگذاری‌شده پیدا نشد.</p>');}};
 
-let currentTheme = localStorage.getItem('pvpt_theme') || 'light';
-let currentLang = localStorage.getItem('pvpt_lang') || 'fa';
+let currentTheme = 'light';
+let currentLang = 'fa';
 
-window.pvptApplyTheme = function(theme) {
+function applyTheme(theme) {
   if (!['light', 'dark', 'factory'].includes(theme)) theme = 'light';
   currentTheme = theme;
-  try { localStorage.setItem('pvpt_theme', theme); } catch(e){}
   document.documentElement.setAttribute('data-theme', theme);
   document.body.setAttribute('data-theme', theme);
   const sel = $('#themeSelectorSettings'); if (sel) sel.value = theme;
 };
 
-window.pvptApplyLanguage = function(lang) {
+function applyLanguage(lang) {
   if (!['fa', 'en'].includes(lang)) lang = 'fa';
   currentLang = lang;
-  try { localStorage.setItem('pvpt_lang', lang); } catch(e){}
   document.documentElement.setAttribute('lang', lang);
   document.documentElement.setAttribute('dir', lang === 'en' ? 'ltr' : 'rtl');
   document.body.setAttribute('dir', lang === 'en' ? 'ltr' : 'rtl');
@@ -1909,6 +1939,18 @@ window.pvptApplyLanguage = function(lang) {
   updateHomePageLanguage(lang);
   renderHomeIssuesAndSolutions();
 };
+
+async function changePreferences(next) {
+ if(!canWrite('preferences'))return false;
+ try {
+   await saveSection('preferences',{theme:currentTheme,lang:currentLang,...next});
+   hydrateSection('preferences',sections.preferences);
+   rerender();
+   return true;
+ } catch(error) { notify('ثبت نشد',error.message); return false; }
+}
+window.pvptApplyTheme=theme=>changePreferences({theme});
+window.pvptApplyLanguage=lang=>changePreferences({lang});
 
 function updateNavLanguage(lang) {
   const isEn = (lang === 'en');
@@ -2086,9 +2128,8 @@ function updateHomePageLanguage(lang) {
   }
 }
 
-loadFixture().then(() => {
-  appOpenPage(currentPage, currentView);
-  window.pvptApplyTheme(currentTheme);
-  window.pvptApplyLanguage(currentLang);
+window.PVPT.ready=startDatabase().catch(error=>{
+  notify('بارگذاری دمو انجام نشد',error.message);
+  return false;
 });
 })();

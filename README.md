@@ -60,4 +60,4 @@ The repository now includes a gated implementation playbook, prompt pack, checkp
 - [Implementation ledger](docs/06_AI_STUDIO/IMPLEMENTATION_LEDGER.md)
 - [Agent Skills](.agents/skills/)
 
-The current repository is still a browser-interactive prototype. The AI Studio Web App, PostgreSQL persistence, production security and live source integrations are future implementation gates, not completed capabilities. The image `demo/main.png` is the required visual baseline and must be inspected and compared at the same viewport before claiming fidelity.
+نسخهٔ فعلی دمو با Express و ذخیره‌سازی سمت سرور SQLite اجرا می‌شود. برای نصب، انتقال داده‌های قبلی، مسیر پایگاه داده و روابط تعاملی به [راهنمای اجرا و صحه‌گذاری MANG_07](docs/07_MANG_07/DATABASE-RELATIONS.md) مراجعه کنید. اتصال عملیاتی، احراز هویت سازمانی و PostgreSQL به مرحلهٔ استقرار سازمانی تعلق دارند. تصویر `demo/main.png` مرجع بصری صفحهٔ اصلی است.

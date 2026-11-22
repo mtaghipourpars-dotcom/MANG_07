@@ -50,7 +50,10 @@ async function submit(form) {
 }
 
 async function readStore(page, key = MODEL) {
-  return page.evaluate(key => JSON.parse(localStorage.getItem(key)), key);
+  const response = await page.request.get('/api/workspace');
+  expect(response.ok()).toBe(true);
+  const {cases,legacy} = await response.json();
+  return key===MODEL?cases:legacy;
 }
 
 async function testHome(page) {
@@ -122,6 +125,11 @@ test('a two-order test-station interruption reaches an auditable value forecast,
         origin: 'فرض صریح آموزشی قرارداد',
         reviewer: 'مسئول برنامه‌ریزی آزمایشی',
       });
+      if(item.order===A&&item.type==='completion'){
+        const preview=page.locator('[data-pvpt-live-preview="mang07-effect"] [data-live-delta]');
+        await expect(preview).toHaveText('۵');
+        expect((await readStore(page))[0].effects).toHaveLength(0);
+      }
       await submit(form);
       const rows = page.locator('.pvpt-case-effects tr[data-effect-id]');
       await expect(rows).toHaveCount(effectIds.size + 1);
@@ -174,6 +182,8 @@ test('a two-order test-station interruption reaches an auditable value forecast,
         const id = effectIds.get(item.order + item.type);
         await field(form, `effect-${id}`, item[option.key]);
       }
+      const live = page.locator('[data-pvpt-live-preview="mang07-option"] [data-live-net]');
+      await expect.poll(async () => englishDigits(await live.innerText())).toBe(option.expected);
       await submit(form);
       const card = page.locator('[data-option-id]').filter({ hasText: option.title });
       await expect(card).toHaveCount(1);
@@ -239,7 +249,7 @@ test('a two-order test-station interruption reaches an auditable value forecast,
     const complete = caseForm(page, 'mang07-outcome').and(page.locator('[data-mode="complete"]'));
     await field(complete, 'note', 'پایان اجرای آزمایشی؛ وصول ب نامشخص است.');
     await submit(complete);
-    expect((await readStore(page))[0].decision.status).toBe('completed');
+    await expect.poll(async () => (await readStore(page))[0].decision.status).toBe('completed');
     await go(page, 'memory', 'lessons');
     const lesson = caseForm(page, 'mang07-lesson');
     const observedOption = await lesson.locator('[name="outcome"] option:not([value=""])').first().getAttribute('value');

@@ -90,7 +90,7 @@ test('intervention comparison returns explicit feasible and infeasible explanati
   await expect(page.locator('#option-evaluation')).toContainText('کسری ۶ ساعت');
 });
 
-test('issue capture and decision memory persist in local browser storage', async ({ page }) => {
+test('issue capture persists in the server database across reload', async ({ page }) => {
   await page.goto('/demo/index.html');
   await page.locator('.nav[data-page="risk"]').click();
   await page.locator('[data-view="issues"]').click();

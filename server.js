@@ -1,27 +1,123 @@
 import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { existsSync, realpathSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openWorkspaceDb, validateWorkspaceWrite, workspaceCookie } from './server/workspace-db.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+const directory = path.dirname(fileURLToPath(import.meta.url));
+const port = Number(process.env.PORT || 3000);
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const databasePath = process.env.PVPT_DATABASE_PATH === ':memory:' ? ':memory:' :
+  path.resolve(process.env.PVPT_DATABASE_PATH || path.join(directory, '.pvpt', 'demo.sqlite'));
+const publicDirectories = ['data', 'demo', 'docs', 'public'].map(name => nearestRealPath(path.join(directory, name)));
 
-// Serve static assets from demo/ at root and at /demo
-app.use('/demo', express.static(path.join(__dirname, 'demo')));
-app.use('/data', express.static(path.join(__dirname, 'data')));
-app.use('/docs', express.static(path.join(__dirname, 'docs')));
-app.use(express.static(path.join(__dirname, 'demo')));
+function nearestRealPath(filename) {
+  if (existsSync(filename)) return realpathSync(filename);
+  return path.join(nearestRealPath(path.dirname(filename)), path.basename(filename));
+}
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', app: 'PVPT Executive Demo', mode: 'DEMO_SYNTHETIC' });
+if (databasePath !== ':memory:') {
+  const resolved = nearestRealPath(databasePath);
+  if (publicDirectories.some(dir => resolved === dir || resolved.startsWith(dir + path.sep))) {
+    throw new Error('PVPT_DATABASE_PATH must be outside the served project directories.');
+  }
+}
+
+const storage = openWorkspaceDb(databasePath, {
+  fixture: path.join(directory, 'data', 'product-project-fixture.json'),
+  reference: path.join(directory, 'data', 'reference-datasets.json')
 });
 
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'demo', 'index.html'));
+app.disable('x-powered-by');
+app.use('/api', (_request, response, next) => {
+  response.set('Cache-Control', 'no-store');
+  next();
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`PVPT server running on http://0.0.0.0:${PORT}`);
+function readCookie(request, name) {
+  const cookie = (request.get('cookie') || '').split(';').map(value => value.trim())
+    .find(value => value.startsWith(name + '='));
+  return cookie?.slice(name.length + 1);
+}
+
+function sameOrigin(request) {
+  if (request.get('sec-fetch-site') && !['same-origin', 'none'].includes(request.get('sec-fetch-site'))) return false;
+  const origin = request.get('origin');
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    return ['http:', 'https:'].includes(url.protocol) && url.host === request.get('host');
+  } catch {
+    return false;
+  }
+}
+
+app.get('/api/health', (_request, response) => {
+  const healthy = storage.health();
+  response.status(healthy ? 200 : 503).json({ status: healthy ? 'ok' : 'unavailable', app: 'PVPT Executive Demo', mode: 'DEMO_SYNTHETIC', storage: 'sqlite' });
 });
+
+app.get('/api/catalog', (_request, response) => {
+  response.json({ fixture: storage.readReference('fixture'), reference: storage.readReference('reference') });
+});
+
+app.get('/data/product-project-fixture.json', (_request, response) => {
+  response.set('Cache-Control', 'no-store').json(storage.readReference('fixture'));
+});
+
+app.get('/api/workspace', (request, response) => {
+  let id = storage.workspaceId(readCookie(request, workspaceCookie));
+  if (!id) {
+    const created = storage.createWorkspace();
+    id = created.id;
+    response.cookie(workspaceCookie, created.token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: process.env.PVPT_COOKIE_SECURE === '1' || request.secure,
+      maxAge: 365 * 24 * 60 * 60 * 1000
+    });
+  }
+  response.json(storage.readWorkspace(id));
+});
+
+app.put('/api/workspace/:section', express.json({ limit: '2mb' }), (request, response) => {
+  if (!sameOrigin(request)) return response.status(403).json({ error: 'cross_origin_write' });
+  const id = storage.workspaceId(readCookie(request, workspaceCookie));
+  if (!id) return response.status(428).json({ error: 'workspace_required' });
+  const section = request.params.section;
+  const invalid = validateWorkspaceWrite(section, request.body);
+  if (invalid) return response.status(400).json({ error: invalid });
+  const result = storage.saveWorkspace(id, section, request.body.revision, request.body.value);
+  if (result.invalid) return response.status(400).json({ error: result.invalid });
+  if (result.conflict) return response.status(409).json({ error: 'revision_conflict', revision: result.revision, value: result.value });
+  response.json(result);
+});
+
+app.use('/api', (_request, response) => response.status(404).json({ error: 'not_found' }));
+
+app.use('/demo', express.static(path.join(directory, 'demo')));
+app.use('/docs', express.static(path.join(directory, 'docs')));
+app.use(express.static(path.join(directory, 'demo')));
+
+app.get('/', (_request, response) => {
+  response.sendFile(path.join(directory, 'demo', 'index.html'));
+});
+
+app.use((error, _request, response, next) => {
+  if (response.headersSent) return next(error);
+  if (error.type === 'entity.too.large') return response.status(413).json({ error: 'payload_too_large' });
+  if (error.type === 'entity.parse.failed') return response.status(400).json({ error: 'invalid_json' });
+  if (error.code?.includes('SQLITE')) return response.status(503).json({ error: 'database_unavailable' });
+  console.error('PVPT request failed:', error.code || error.name);
+  response.status(500).json({ error: 'internal_error' });
+});
+
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`PVPT server running on http://0.0.0.0:${server.address().port}`);
+});
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    server.close(() => storage.close());
+  });
+}

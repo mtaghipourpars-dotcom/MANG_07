@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.3.0",
   "type": "module",
-  "description": "Browser smoke tests for the PVPT static executive demo",
+  "description": "PVPT executive demo with persistent SQLite storage",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",

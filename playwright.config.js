@@ -13,6 +13,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    ...(process.env.PVPT_CHROMIUM ? {launchOptions:{executablePath:process.env.PVPT_CHROMIUM,args:['--no-zygote','--no-sandbox']}} : {}),
   },
   projects: [
     {
@@ -25,9 +26,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'python3 -m http.server 4173 --bind 127.0.0.1',
-    url: 'http://127.0.0.1:4173/demo/index.html',
-    reuseExistingServer: !process.env.CI,
+    command: 'node server.js',
+    env: { PORT:'4173',PVPT_DATABASE_PATH:':memory:' },
+    url: 'http://127.0.0.1:4173/api/health',
+    reuseExistingServer: false,
     timeout: 15_000,
   },
 });
