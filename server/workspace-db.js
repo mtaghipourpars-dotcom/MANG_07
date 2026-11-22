@@ -136,6 +136,10 @@ function validateCases(value, catalogue = null) {
     const options = indexRecords(item.options ?? []);
     const outcomes = indexRecords(item.outcomes ?? []);
     if (!effects || !options || !outcomes || !Array.isArray(item.lessons ?? [])) return 'invalid_case_records';
+    if (!Array.isArray(item.routing ?? []) || (item.routing ?? []).some(review =>
+        !object(review) || !Array.isArray(review.measures) || review.measures.some(metric => !object(metric)) ||
+        typeof review.origin !== 'string' || !review.origin.trim() ||
+        !['monitor','review','committee','senior','unit'].includes(review.recommendation))) return 'invalid_routing_history';
     const orders = item.orders ?? [];
     if (!Array.isArray(orders) || orders.some(id => !recordId(id)) || new Set(orders).size !== orders.length) return 'invalid_order_links';
     if (catalogue && (orders.some(id => !catalogue.orders.has(id)) ||
@@ -180,6 +184,8 @@ function checkCaseHistory(before, after) {
   for (const previous of before) {
     const current = next.get(previous.id);
     if (!current) return 'case_history_removed';
+    if (!prefixUnchanged(previous.routing ?? [], current.routing ?? []) ||
+        (previous.decision && (previous.routing ?? []).length !== (current.routing ?? []).length)) return 'routing_history_immutable';
     if (!previous.decision) {
       if (current.decision && current.decision.status !== 'approved') return 'invalid_decision_transition';
       const effects = new Map((current.effects ?? []).map(item => [item.id, item]));

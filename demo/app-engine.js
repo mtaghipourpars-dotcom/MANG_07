@@ -1320,14 +1320,64 @@ function mang07EffectRows(item) {
   }).join('');
 }
 let mang07EffectId = '';
+const routeLabels={monitor:'پایش',review:'نیازمند تکمیل شواهد یا آستانه‌ها',committee:'ارجاع پیشنهادی به کمیته راهبری و مدیرعامل',senior:'ارجاع پیشنهادی به مدیریت ارشد',unit:'اقدام پیشنهادی در سطح واحد'};
+const routeMetrics={exposure:'مواجهه مالی بدون هم‌پوشانی (میلیون تومان)',severity:'شدت (۰ تا ۱۰۰)',cash:'اثر مالی تعویق وصول (میلیون تومان)'};
+function readCaseRouting(v) {
+ const measures=Object.entries(routeMetrics).map(([key,label])=>{
+   const max=key==='severity'?100:Infinity;
+   const [value,medium,high]=[key,key+'Medium',key+'High'].map(name=>mang07Amount(v[name],max));
+   if(medium!==null&&high!==null&&medium>=high)throw Error('آستانهٔ بالا باید بزرگ‌تر از آستانهٔ میانی باشد.');
+   return {key,label,value,medium,high};
+ });
+ const today=mang07Amount(v.currentDay),cutoff=mang07Amount(v.cutoff);
+ return {action:v.action,external:v.external,measures,today,cutoff,origin:v.routeOrigin.trim(),
+   recommendation:PVPTGovernance.route({action:v.action,external:v.external,measures}),window:PVPTGovernance.windowDays(today,cutoff)};
+}
+function governanceSummary(review) {
+ return esc(routeLabels[review.recommendation])+' · پنجرهٔ مداخله: '+esc(mang07Value(review.window))+' روز';
+}
+function delayFields(model) {
+ return model.fields.map((label,index)=>mang07Label(esc(label),'delay'+index)).join('');
+}
+function updateDelayEstimate(panel,target) {
+ const kind=$('[name=delayKind]',panel).value;
+ const model=PVPTGovernance.delayModels[kind];
+ if(target.name==='delayKind') $('[data-delay-fields]',panel).innerHTML=delayFields(model);
+ const output=$('[data-delay-output]',panel);
+ try {
+   const values=$$('input',panel).map(field=>mang07Amount(field.value));
+   output.textContent='بیشینهٔ صفر و ('+model.formula+') = '+mang07Value(PVPTGovernance.delay(kind,values))+' روز';
+ } catch(error){ output.textContent=error.message; }
+}
+function governancePanel(item) {
+ const current=item.routing?.at(-1);
+ const history=(item.routing||[]).slice().reverse().map(row=>'<details><summary>'+governanceSummary(row)+'</summary><p>'+esc(row.at)+' · '+esc(row.origin)+'</p><p>'+row.measures.map(metric=>esc(metric.label+': '+mang07Value(metric.value)+' / آستانهٔ میانی '+mang07Value(metric.medium)+' / بالا '+mang07Value(metric.high))).join(' · ')+'</p></details>').join('');
+ const models=PVPTGovernance.delayModels;
+ const estimator='<details data-delay-model><summary>برآورد آموزشی تأخیر منبع</summary><p>تقویم، پوشش و شناوری را در یک مبدأ وارد کنید. نتیجه فقط برای مقایسه است و تعهد را تغییر نمی‌دهد.</p>'+
+   mang07Select('نوع برآورد','delayKind',Object.entries(models).map(([key,model])=>[key,model.label]),'machine')+
+   '<div data-delay-fields>'+delayFields(models.machine)+'</div><p data-delay-output aria-live="polite">تأخیر مؤثر: نامشخص</p></details>';
+ const lessons=PVPTGovernance.priorLessons(mang07Cases,item);
+ const similar=lessons.length?card('درس‌آموخته‌های همین منبع',table(['پروندهٔ قبلی','درس‌آموخته','دامنه'],lessons.map(({item,lesson})=>[esc(item.title)+' '+mang07Open('بازکردن پرونده','mang07-case-open',item.id),esc(lesson.text),esc(lesson.scope)]))):'';
+ const fields=[mang07Hidden('caseId',item.id),
+  mang07Select('نیاز به اقدام','action',[['','نامشخص'],['monitor','پایش'],['act','اقدام لازم است']],current?.action),
+  mang07Select('نیاز به تأیید واحد دیگر','external',[['','نامشخص'],['no','خیر'],['yes','بله']],current?.external),
+  ...Object.entries(routeMetrics).flatMap(([key,name])=>{
+    const metric=current?.measures.find(row=>row.key===key);
+    return [mang07Label(name,key,metric?.value),mang07Label('آستانهٔ میانی · '+name,key+'Medium',metric?.medium),mang07Label('آستانهٔ بالا · '+name,key+'High',metric?.high)];
+  }),
+  mang07Label('روز جاری نسبی','currentDay',current?.today),mang07Label('آخرین فرصت مداخله با همان مبدأ','cutoff',current?.cutoff),
+  mang07Label('منبع آستانه‌ها و مفروضات','routeOrigin',current?.origin,true)];
+ return estimator+similar+card('پیشنهاد مسیر تصمیم و سابقه بررسی','<p>ارزیابی آموزشی است و مسئولیت تصمیم انسانی است. مبلغ وصول را به عنوان خسارت وارد نکنید. پنجره = بیشینهٔ صفر و اختلاف آخرین فرصت با روز جاری.</p>'+history+
+   (item.decision?'':form('mang07-routing',fields,'ثبت ارزیابی مسیر')));
+}
 function mang07ImpactPanel(item) {
   const row = item.effects.find(effect => effect.id === mang07EffectId);
   const ids = item.orders.length ? item.orders : catalog.orders.map(order => order.production_order_id);
   const orders = ids.map(id => [id,id]);
   const model = card('اثر چالش · '+esc(item.title),'<p>منبع: '+esc(item.resource)+' · وضعیت: '+esc(mang07Status(item))+' · مهلت مداخله: '+esc(mang07Value(item.interventionDay))+'</p><p>منشأ پروژه: '+esc(item.projectOrigin)+' · منشأ سناریو: '+esc(item.evidence || 'نامشخص، ورودی آموزشی کاربر')+'</p><div class="app-table-wrap"><table class="app-table pvpt-case-effects"><thead><tr><th>سفارش</th><th>تعهد</th><th>مبنا</th><th>بدون اقدام</th><th>تغییر چالش</th><th>موعد سخت</th><th>نسخه‌ها</th></tr></thead><tbody>'+mang07EffectRows(item)+'</tbody></table></div>'+mang07Open('مقایسه و پیشنهاد راهکار','mang07-options',item.id));
-  if (item.decision) return model;
+  if (item.decision) return model+governancePanel(item);
   const history = (item.conditionHistory||[]).map(record=>'<p>'+esc(record.at)+' · '+esc(mang07Value(record.downtime))+' ساعت · '+esc(record.evidence)+'</p>').join('');
-  return model+'<details><summary>فرض توقف، شواهد و تاریخچه</summary><p>شرح: '+esc(item.description)+' · توقف کنونی: '+esc(mang07Value(item.downtime))+' ساعت</p>'+history+form('mang07-condition',[
+  return model+governancePanel(item)+'<details><summary>فرض توقف، شواهد و تاریخچه</summary><p>شرح: '+esc(item.description)+' · توقف کنونی: '+esc(mang07Value(item.downtime))+' ساعت</p>'+history+form('mang07-condition',[
     mang07Hidden('caseId',item.id),mang07Label('مدت توقف بازبینی‌شده (ساعت)','downtime',mang07Text(item.downtime)),mang07Label('دلیل یا شاهد تغییر فرض','evidence','',true)
   ],'به‌روزرسانی فرض توقف')+'</details>'+card(row?'ویرایش برآورد اثر':'افزودن اثر بر تعهد',form('mang07-effect',[
     mang07Hidden('caseId',item.id),mang07Hidden('rowId',row?.id ?? ''),
@@ -1384,7 +1434,7 @@ function readOptionDraft(item,v) {
 }
 function updateLivePreview(form) {
  const type=form.dataset.form;
- if(!['mang07-effect','mang07-option','mang07-condition','mang07-case'].includes(type))return;
+ if(!['mang07-effect','mang07-option','mang07-condition','mang07-case','mang07-routing'].includes(type))return;
  let target=form.nextElementSibling;
  if(!target?.hasAttribute('data-pvpt-live-preview')){
    target=document.createElement('section');
@@ -1405,6 +1455,7 @@ function updateLivePreview(form) {
      return;
    }
    if(!item){target.textContent='پرونده انتخاب نشده است.';return;}
+   if(type==='mang07-routing'){target.innerHTML=governanceSummary(readCaseRouting(v));return;}
    if(type==='mang07-condition'){
      const changed=mang07Amount(v.downtime)!==item.downtime;
      target.textContent=changed?'تغییر مدت توقف، '+fa(item.effects.length)+' برآورد را نیازمند بازبینی می‌کند. تاریخ تعهد به محض ورود تخمین معتبر محاسبه می‌شود.':'برآورد فعلی تا ثبت تغییر معتبر است.';
@@ -1505,7 +1556,11 @@ async function mang07Submit(f, v) {
   }
   const item = mang07CaseRequired(v);
   if (item.decision) throw Error('نسخهٔ مصوب قابل تغییر نیست.');
-  if (type === 'mang07-condition') {
+  if (type === 'mang07-routing') {
+    const review=readCaseRouting(v);
+    if(!review.origin)throw Error('مرجع ارزیابی مسیر را ثبت کنید.');
+    (item.routing??=[]).push({...review,at:stamp});
+  } else if (type === 'mang07-condition') {
     const downtime = mang07Amount(v.downtime);
     const evidence = v.evidence.trim();
     if (!evidence || downtime===item.downtime) throw Error('مدت توقف جدید و دلیل تغییر را مشخص کنید.');
@@ -1889,6 +1944,8 @@ document.addEventListener('click',function(e){
 });
 document.addEventListener('submit',function(e){const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();submitForm(f);},true);
 function handleWorkbenchChange(e){
+ const estimator=e.target.closest('[data-delay-model]');
+ if(estimator)updateDelayEstimate(estimator,e.target);
  if (e.type==='change') mang07EffectChange(e.target);
  const edited=e.target.closest('form[data-form^="mang07-"]');
  if(edited)updateLivePreview(edited);
