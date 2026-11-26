@@ -200,3 +200,7 @@ For every completed gate append:
 ## Total Demo — scenario bank and workspace increment
 
 See [the Persian build contract and verification status](../09_TOTAL_DEMO/README.md). The scenario matrix and executive evidence were reproduced locally. Browser acceptance remains pending CI.
+
+## Total Demo — database and four workspaces
+
+[`DEV`](../../DEV/README.md) records the machine contract, setup and acceptance criteria. The scenario bank is reproduced from reviewed evidence and opened read-only. The separate workspace database records training actions with optimistic concurrency. Browser QA and human acceptance have distinct evidence requirements.

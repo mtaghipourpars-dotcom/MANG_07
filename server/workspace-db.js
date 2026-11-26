@@ -30,9 +30,8 @@ function transaction(db, run) {
 function migrate(db) {
   transaction(db, () => {
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 1) throw new Error('The PVPT database schema is newer than this application.');
-    if (version === 1) return;
-    db.exec(`
+    if (version > 2) throw new Error('The PVPT database schema is newer than this application.');
+    if (version === 0) db.exec(`
       CREATE TABLE workspaces (
         id TEXT PRIMARY KEY,
         created_at TEXT NOT NULL
@@ -61,7 +60,22 @@ function migrate(db) {
         value TEXT NOT NULL CHECK(json_valid(value))
       ) STRICT;
 
-      PRAGMA user_version = 1;
+    `);
+    if (version < 2) db.exec(`
+      CREATE TABLE total_demo_actions (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        source TEXT NOT NULL,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, scenario_id, revision)
+      ) STRICT;
+
+      PRAGMA user_version = 2;
     `);
   });
 }
@@ -249,6 +263,18 @@ export function openWorkspaceDb(filename, seeds) {
     SET revision = excluded.revision, value = excluded.value, updated_at = excluded.updated_at
   `);
   const audit = db.prepare('INSERT INTO workspace_changes(workspace_id, name, revision, changed_at) VALUES (?, ?, ?, ?)');
+  const readActions = db.prepare(`
+    SELECT revision, action, actor, status, reason, at FROM total_demo_actions
+    WHERE workspace_id = ? AND scenario_id = ? ORDER BY revision
+  `);
+  const latestAction = db.prepare(`
+    SELECT revision, source FROM total_demo_actions
+    WHERE workspace_id = ? AND scenario_id = ? ORDER BY revision DESC LIMIT 1
+  `);
+  const addAction = db.prepare(`
+    INSERT INTO total_demo_actions (workspace_id, scenario_id, revision, source, action, actor, status, reason, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
   const dataset = db.prepare('SELECT value FROM reference_datasets WHERE name = ?');
   const reference = JSON.parse(dataset.get('reference')?.value ?? '{}');
   const fixture = JSON.parse(dataset.get('fixture')?.value ?? '{}');
@@ -290,6 +316,19 @@ export function openWorkspaceDb(filename, seeds) {
         update.run(id, section, revision + 1, JSON.stringify(value), stamp);
         audit.run(id, section, revision + 1, stamp);
         return { revision: revision + 1, value };
+      });
+    },
+    readTotalDemoHistory(workspace, scenario) {
+      return readActions.all(workspace, scenario);
+    },
+    appendTotalDemoAction(workspace, scenario, revision, record) {
+      return transaction(db, () => {
+        const latest = latestAction.get(workspace, scenario);
+        if ((latest?.revision ?? 0) !== revision) return { error: 'revision_conflict' };
+        if (latest && latest.source !== record.source) return { error: 'scenario_source_changed' };
+        addAction.run(workspace, scenario, revision + 1, record.source, record.action, record.actor,
+          record.status, record.reason, new Date().toISOString());
+        return { revision: revision + 1 };
       });
     },
     readReference(name) {
