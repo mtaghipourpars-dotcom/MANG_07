@@ -1,0 +1,141 @@
+{
+  "id": "S000115",
+  "anchor": "PUB-THERMAL-MGG72-SH2",
+  "stage": "procurement",
+  "resource": "supplier",
+  "option": "alternate",
+  "profile": "cancelled",
+  "variant": 0,
+  "gate": "FEASIBLE",
+  "decision": "APPROVED",
+  "execution": "CANCELLED",
+  "outcome": "PENDING",
+  "data_class": "DEMO_SYNTHETIC",
+  "event": [
+    {
+      "scenario": "S000115",
+      "sequence": 1,
+      "actor": "OWNER",
+      "action": "BASELINE",
+      "status": "FROZEN"
+    },
+    {
+      "scenario": "S000115",
+      "sequence": 2,
+      "actor": "EXPERT",
+      "action": "DETECTION",
+      "status": "REPORTED"
+    },
+    {
+      "scenario": "S000115",
+      "sequence": 3,
+      "actor": "ASSESSOR",
+      "action": "ASSESS",
+      "status": "FEASIBLE"
+    },
+    {
+      "scenario": "S000115",
+      "sequence": 4,
+      "actor": "DECIDER",
+      "action": "DECIDE",
+      "status": "APPROVED"
+    },
+    {
+      "scenario": "S000115",
+      "sequence": 5,
+      "actor": "EXECUTOR",
+      "action": "EXECUTE",
+      "status": "CANCELLED"
+    },
+    {
+      "scenario": "S000115",
+      "sequence": 6,
+      "actor": "REVIEWER",
+      "action": "OBSERVE",
+      "status": "PENDING"
+    }
+  ],
+  "effect": [
+    {
+      "scenario": "S000115",
+      "node": "acceptance",
+      "baseline": 28,
+      "without_action": 31,
+      "proposed": 29,
+      "current_forecast": 31,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "collection",
+      "baseline": 32,
+      "without_action": 35,
+      "proposed": 33,
+      "current_forecast": 35,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "dispatch",
+      "baseline": 24,
+      "without_action": 27,
+      "proposed": 25,
+      "current_forecast": 27,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "donor_delivery",
+      "baseline": 24,
+      "without_action": 24,
+      "proposed": 24,
+      "current_forecast": 24,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "engineering",
+      "baseline": 4,
+      "without_action": 4,
+      "proposed": 4,
+      "current_forecast": 4,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "manufacturing",
+      "baseline": 16,
+      "without_action": 19,
+      "proposed": 17,
+      "current_forecast": 19,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "procurement",
+      "baseline": 8,
+      "without_action": 11,
+      "proposed": 9,
+      "current_forecast": 11,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "quality_fat",
+      "baseline": 20,
+      "without_action": 23,
+      "proposed": 21,
+      "current_forecast": 23,
+      "observed": null
+    },
+    {
+      "scenario": "S000115",
+      "node": "stock_release",
+      "baseline": 12,
+      "without_action": 15,
+      "proposed": 13,
+      "current_forecast": 15,
+      "observed": null
+    }
+  ]
+}
