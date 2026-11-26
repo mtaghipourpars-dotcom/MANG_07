@@ -57,6 +57,7 @@ function expert() {
     '<p>مدرک آموزشی: توقف ایستگاه آزمون مشترک. مسیر وابستگی: ایستگاه مشترک ← عملیات آزمون در اردرها ← WBS ← تعهد.</p>' +
     '<div class="meta">' + badge('منبع: TEST-CELL-01') + badge('پرونده آموزشی: C-01') + '</div>' +
     '<p>اثر مقدماتی: سفارش الف نیازمند بررسی. نوبت فعلی سفارش ب در گزینه بدون اقدام حفظ می‌شود.</p>' +
+    button('مشاهده تعهد سفارش الف', 'showCommitment') +
     button(state.issue ? 'ارجاع به ارزیابی' : 'ثبت مشاهده آموزشی و ارجاع', 'recordIssue'));
 }
 function assessor() {
@@ -113,8 +114,17 @@ screen.addEventListener('change', event => {
   render();
   screen.querySelector('[data-evidence="' + evidence + '"]')?.focus();
 });
+const workspaceActions = {
+  owner: ['orderA', 'orderB', 'openIssue'],
+  expert: ['recordIssue', 'showCommitment'],
+  assessor: ['review'],
+  executive: ['approve', 'start', 'observe', 'lesson']
+};
 screen.addEventListener('click', event => {
-  switch (event.target.closest('[data-action]')?.dataset.action) {
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (!workspaceActions[state.role].includes(action)) return;
+  switch (action) {
+    case 'showCommitment': state.order = 'A'; state.role = 'owner'; break;
     case 'orderA': state.order = 'A'; break;
     case 'orderB': state.order = 'B'; break;
     case 'openIssue': state.role = 'expert'; break;
