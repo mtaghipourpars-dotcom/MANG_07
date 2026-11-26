@@ -22,6 +22,31 @@ const labels = {
   execution:['اجرا','Execution'], outcome:['نتیجه','Outcome'], engineering:['مهندسی','Engineering'], procurement:['تأمین','Procurement'],
   material:['مواد','Material'], production:['ساخت','Production'], manufacturing:['ساخت','Manufacturing'], fat:['آزمون کارخانه','Factory acceptance test'],
   dispatch:['ارسال','Dispatch'], acceptance:['پذیرش','Acceptance'], collection:['وصول','Collection'],
+  quality_fat:['کیفیت و آزمون کارخانه','Quality and FAT'], stock_release:['آزادسازی موجودی','Stock release'],
+  donor_delivery:['تحویل سفارش اهداکننده','Donor order delivery'], drawing:['نقشه','Drawing'],
+  supplier:['تأمین‌کننده','Supplier'], usable_stock:['موجودی قابل مصرف','Usable stock'], work_center:['مرکز کار','Work center'],
+  test_cell:['ایستگاه آزمون','Test cell'], transport:['حمل','Transport'], customer_witness:['شاهد کارفرما','Customer witness'],
+  payment_clearance:['آزادسازی پرداخت','Payment clearance'], alternate:['جایگزین','Alternate'],
+  expedite:['تسریع','Expedite'], transfer:['انتقال','Transfer'],
+  approved:['مصوب','Approved'], cancelled:['لغو شده','Cancelled'], failed:['ناموفق','Failed'],
+  late_decision:['تصمیم دیرهنگام','Late decision'], no_action:['بدون اقدام','No action'], partial:['اجرای جزئی','Partial execution'],
+  pending_observation:['در انتظار مشاهده','Pending observation'], ready:['آماده','Ready'],
+  shared_conflict:['تعارض مشترک','Shared conflict'], stale:['منقضی از نظر نسخه','Stale version'],
+  superseded:['جایگزین‌شده','Superseded'], unknown:['نامشخص','Unknown'],
+  NOT_REQUIRED:['نیازی به تصمیم ندارد','Decision not required'], NO_ACTION:['بدون اقدام','No action'],
+  NOT_APPROVED:['تصویب نشده','Not approved'], NOT_STARTED:['شروع نشده','Not started'],
+  COMPLETED:['تکمیل‌شده','Completed'], FAILED:['ناموفق','Failed'], PARTIAL:['جزئی','Partial'], CANCELLED:['لغو‌شده','Cancelled'],
+  SUPERSEDED:['جایگزین‌شده','Superseded'], IN_PROGRESS:['در حال انجام','In progress'],
+  NOT_APPLICABLE:['نامرتبط','Not applicable'], PENDING:['در انتظار','Pending'],
+  FROZEN:['نسخه ثابت','Frozen'], NO_ISSUE:['بدون چالش','No issue'], CAPTURED:['ثبت‌شده','Captured'],
+  PROVISIONAL:['موقت','Provisional'], STALE:['کهنه','Stale'], EXPIRED:['منقضی','Expired'], READY:['آماده','Ready'],
+  OWNER:['مالک تعهد','Commitment owner'], EXPERT:['کارشناس','Expert'], ASSESSOR:['ارزیاب','Assessor'],
+  DECIDER:['تصمیم‌گیر','Decision manager'], EXECUTOR:['مجری','Executor'], REVIEWER:['بازبین','Reviewer'],
+  BASELINE:['ثبت خط مبنا','Baseline'], DETECTION:['تشخیص رخداد','Detection'], DECIDE:['تصمیم','Decision'],
+  LESSON:['درس‌آموخته','Lesson learned'], CEO_DECISION_REQUIRED:['نیازمند تصمیم مدیرعامل','CEO decision required'],
+  DIFFERENT_PERIOD:['دوره متفاوت','Different period'], INTERNAL_TRANSFER:['گردش داخلی','Internal transfer'],
+  manufacturing_cost_effect:['اثر بهای ساخت','Manufacturing cost effect'], released_capacity:['ظرفیت آزادشده','Released capacity'],
+  M_TOMAN:['میلیون تومان','Million toman'], HOUR:['ساعت','Hour'],
   DRAFT:['پیش‌نویس','Draft'], REPORTED:['ثبت‌شده','Reported'], SCOPED:['دامنه بررسی شده','Scoped'], ASSESSED:['ارزیابی‌شده','Assessed'],
   APPROVED:['مصوب','Approved'], DECLINED:['رد شده','Declined'], EXECUTED:['اجراشده','Executed'], OBSERVED:['مشاهده‌شده','Observed'],
   CLOSED:['بسته','Closed'], FEASIBLE:['امکان‌پذیر','Feasible'], BLOCKED_DONOR:['نقض موعد سفارش اهداکننده','Donor commitment breached'],
@@ -42,7 +67,7 @@ function savePreference(key, value) {
   try { localStorage.setItem(key, value); } catch { /* preferences are optional */ }
 }
 function t(fa, en) { return state.lang === 'fa' ? fa : en; }
-function label(value) { return labels[value] ? t(...labels[value]) : value; }
+function label(value) { return Object.hasOwn(labels,value) ? t(...labels[value]) : value; }
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
@@ -121,7 +146,7 @@ function scenarios() {
 }
 function timeline(items) {
   return table([t('ترتیب','Sequence'),t('عامل','Actor'),t('اقدام','Action'),t('وضعیت','Status'),t('دلیل یا شاهد','Reason or evidence')],items.map(item => [
-    show(item.revision ?? item.sequence),show(item.actor), show(item.action),show(item.status),show(item.reason)
+    show(item.revision ?? item.sequence),show(item.actor), actionNames[item.action] ? t(...actionNames[item.action]) : show(item.action),show(item.status),show(item.reason)
   ]));
 }
 function effectTable(items) {
@@ -142,31 +167,33 @@ function workspace() {
   const detail = state.detail;
   const record = state.cases;
   if (!detail || !record) return '';
-  const ids = {owner:['OWNER'],expert:['EXPERT','REVIEWER'],assessor:['ASSESSOR'],executive:['DECIDER']};
   const levels = {
     owner: t('مدیر · مالک تعهد','Management · Commitment owner'),
     expert: t('کارشناس · ثبت شاهد و اثر','Expert · Reporting and evidence'),
     assessor: t('مدیر · ارزیابی گزینه','Management · Option assessment'),
     executive: t('مدیر ارشد · تصمیم و پیگیری','Executive · Decision and follow-up')
   };
+  const referenceLabel = '<p class="muted">' + t('این مقادیر از مرجع ثابت بانک سناریو خوانده شده‌اند. وضعیت این اجرای دمو در گردش پرونده جدا ثبت می‌شود.',
+    'These figures come from the fixed scenario bank. This training run has its own case history.') + '</p>';
   const effects = card(t('تعهدات و زنجیره اثر · روز آموزشی','Commitments and impact chain · Training days'),
-    effectTable(detail.effect ?? []) + button(t('مشاهده چالش و شاهد','Open issue and evidence'),'data-role="expert"') +
+    referenceLabel + effectTable(detail.effect ?? []) + button(t('مشاهده چالش و شاهد','Open issue and evidence'),'data-role="expert"') +
     button(t('بررسی گزینه پرونده','Review case option'),'data-role="assessor"'));
   let context = '';
   if (state.role === 'owner') context = effects;
   if (state.role === 'expert') context = card(t('مشاهده، چالش و شواهد','Observation, issue and evidence'),
     metrics([[t('منبع','Resource'),show(detail.resource)],[t('مرحله اثر','Affected stage'),show(detail.stage)]]) +
-    timeline((detail.event ?? []).filter(item => ids.expert.includes(item.actor))) +
+    timeline((detail.event ?? []).filter(item => ['EXPERT','REVIEWER'].includes(item.actor))) +
     button(t('مشاهده تعهدها','Open commitments'),'data-role="owner"'));
   if (state.role === 'assessor') context = card(t('ارزیابی گزینه و قیدها','Option assessment and constraints'),
-    metrics([[t('گزینه','Option'),show(detail.option)],[t('قید','Gate'),show(detail.gate)],[t('پروفایل','Profile'),show(detail.profile)]]) + effectTable(detail.effect ?? []));
+    metrics([[t('گزینه','Option'),show(detail.option)],[t('قید','Gate'),show(detail.gate)],[t('پروفایل','Profile'),show(detail.profile)]]) + referenceLabel + effectTable(detail.effect ?? []));
   if (state.role === 'executive') context = card(t('تصمیم، اجرا و مشاهده','Decision, execution and observation'),
     metrics([[t('نتیجه مرجع سناریو','Scenario reference outcome'),show(detail.outcome)],[t('تصمیم مرجع سناریو','Scenario reference decision'),show(detail.decision)],
-      [t('اجرای مرجع سناریو','Scenario reference execution'),show(detail.execution)]]) + effectTable(detail.effect ?? []) +
+      [t('اجرای مرجع سناریو','Scenario reference execution'),show(detail.execution)]]) + referenceLabel + effectTable(detail.effect ?? []) +
     button(t('شواهد رزرو و مالی','Reservation and finance evidence'),'data-section="evidence"'));
   return '<nav class="navigation role-nav" aria-label="' + t('فضاهای کار','Workspaces') + '">' + orderedNav(roleNames,'role',state.role) + '</nav>' +
     card(levels[state.role], metrics([[t('پرونده مشترک','Shared case'),code(record.scenarioId)],[t('وضعیت این اجرای دمو','Demo run status'),show(record.status)],
-        [t('نسخه','Revision'),show(record.revision)]]) + caseActions(record) +
+        [t('نسخه','Revision'),show(record.revision)],
+        [t('مرجع سناریو','Scenario anchor'),code(detail.anchor)]]) + caseActions(record) +
       '<p class="muted">' + t('نقش‌ها در این محیط آموزشی نمایشی‌اند.','Workspace roles are simulated in this training environment.') + '</p>') +
     context + card(t('گردش پرونده در این اجرا','Case history for this run'),timeline(record.history ?? [])) +
     card(t('گردش از پیش محاسبه‌شده در بانک آموزشی','Precomputed training-bank history'),timeline(detail.event ?? []));
