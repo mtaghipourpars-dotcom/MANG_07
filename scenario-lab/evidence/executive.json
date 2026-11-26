@@ -1,0 +1,613 @@
+{
+  "data_class": "DEMO_SYNTHETIC",
+  "case_id": "EXEC-FIN-01",
+  "now_minute": 0,
+  "order_conflict": {
+    "case_id": "EXEC-FIN-01",
+    "approved_does_not_mean_reserved": true,
+    "resource": "FAT-01",
+    "protected_order": "ORDER-A",
+    "reserved_slot": [
+      600,
+      780
+    ],
+    "incoming_requested_slot": [
+      690,
+      870
+    ],
+    "alternative_slot": [
+      780,
+      960
+    ],
+    "existing": {
+      "status": "RESERVED",
+      "conflicting_orders": []
+    },
+    "requested": {
+      "status": "BLOCKED_CONFLICT",
+      "conflicting_orders": [
+        "ORDER-A"
+      ]
+    },
+    "alternative": {
+      "status": "RESERVED",
+      "conflicting_orders": []
+    }
+  },
+  "promises": {
+    "24h": [
+      {
+        "id": "PROM-A",
+        "case_id": "EXEC-FIN-01",
+        "order": "ORDER-A",
+        "title": "پایان آزمون سفارش الف",
+        "due_minute": 840,
+        "readiness": "READY",
+        "reserved_slot": [
+          600,
+          780
+        ],
+        "controls": [
+          {
+            "requirement": "آمادگی تجهیز",
+            "status": "READY",
+            "evidence": "RES-A"
+          },
+          {
+            "requirement": "تیم مجاز و هم‌زمان",
+            "status": "READY",
+            "evidence": "DEMO-SHIFT-A"
+          },
+          {
+            "requirement": "مواد آزادشده",
+            "status": "READY",
+            "evidence": "DEMO-QM-A"
+          }
+        ]
+      }
+    ],
+    "72h": [
+      {
+        "id": "PROM-A",
+        "case_id": "EXEC-FIN-01",
+        "order": "ORDER-A",
+        "title": "پایان آزمون سفارش الف",
+        "due_minute": 840,
+        "readiness": "READY",
+        "reserved_slot": [
+          600,
+          780
+        ],
+        "controls": [
+          {
+            "requirement": "آمادگی تجهیز",
+            "status": "READY",
+            "evidence": "RES-A"
+          },
+          {
+            "requirement": "تیم مجاز و هم‌زمان",
+            "status": "READY",
+            "evidence": "DEMO-SHIFT-A"
+          },
+          {
+            "requirement": "مواد آزادشده",
+            "status": "READY",
+            "evidence": "DEMO-QM-A"
+          }
+        ]
+      },
+      {
+        "id": "PROM-B",
+        "case_id": "EXEC-FIN-01",
+        "order": "ORDER-B",
+        "title": "پذیرش سفارش ب",
+        "due_minute": 2880,
+        "readiness": "UNKNOWN",
+        "reserved_slot": [
+          780,
+          960
+        ],
+        "controls": [
+          {
+            "requirement": "تأیید شاهد مشتری",
+            "status": "UNKNOWN",
+            "evidence": "DEMO-WITNESS-PENDING"
+          },
+          {
+            "requirement": "نوبت آزمون",
+            "status": "READY",
+            "evidence": "RES-B-ALT"
+          }
+        ]
+      },
+      {
+        "id": "PROM-C",
+        "case_id": "EXEC-FIN-01",
+        "order": "ORDER-C",
+        "title": "ارسال سفارش ج",
+        "due_minute": 3900,
+        "readiness": "BLOCKED",
+        "reserved_slot": [
+          null,
+          null
+        ],
+        "controls": [
+          {
+            "requirement": "آزادسازی کیفیت",
+            "status": "BLOCKED",
+            "evidence": "DEMO-QM-HOLD"
+          }
+        ]
+      }
+    ]
+  },
+  "governance": {
+    "cards": {
+      "EXEC-FIN-01": {
+        "id": "EXEC-FIN-01",
+        "promise": "PAY-FAT-01",
+        "issue": "گزینه آزمون بیرونی نیازمند تصمیم و تأیید نقد",
+        "owner": "OPS",
+        "amount": 480,
+        "policy_ceo": 1,
+        "risk": "HIGH",
+        "due": 360,
+        "current_assignment": {
+          "actor": "CEO",
+          "assigned_at": -90,
+          "accept_by": 120,
+          "accepted_at": null
+        },
+        "approved_snapshot": null,
+        "observed_result": null,
+        "latest_valid_status": {
+          "sequence": 1,
+          "occurred_at": -90,
+          "actor": "ASSESSOR",
+          "status": "CEO_DECISION_REQUIRED",
+          "detail": "خارج از سقف اختیار واحد"
+        },
+        "forecast_error_minutes": null,
+        "residual_minutes": null,
+        "remaining_risk_status": "UNVERIFIED"
+      },
+      "EXEC-GOV-02": {
+        "id": "EXEC-GOV-02",
+        "promise": "DELIVERY-02",
+        "issue": "خرابی ایستگاه؛ دامنه اختیار واحد",
+        "owner": "OPS",
+        "amount": 140,
+        "policy_ceo": 0,
+        "risk": "HIGH",
+        "due": 720,
+        "current_assignment": {
+          "actor": "OPS-DEPUTY",
+          "assigned_at": 0,
+          "accept_by": 60,
+          "accepted_at": null
+        },
+        "approved_snapshot": null,
+        "observed_result": null,
+        "latest_valid_status": {
+          "sequence": 6,
+          "occurred_at": 0,
+          "actor": "OPS-DEPUTY",
+          "status": "DEPUTY_ASSIGNED",
+          "detail": "OPS"
+        },
+        "forecast_error_minutes": null,
+        "residual_minutes": null,
+        "remaining_risk_status": "UNVERIFIED"
+      },
+      "EXEC-GOV-03": {
+        "id": "EXEC-GOV-03",
+        "promise": "DELIVERY-03",
+        "issue": "پیگیری دستور اجرایی روز قبل",
+        "owner": "OPS",
+        "amount": 170,
+        "policy_ceo": 0,
+        "risk": "HIGH",
+        "due": -120,
+        "current_assignment": {
+          "actor": "OPS",
+          "assigned_at": -1560,
+          "accept_by": -1500,
+          "accepted_at": -1530
+        },
+        "approved_snapshot": {
+          "id": "ORDER-YDAY-03",
+          "case_id": "EXEC-GOV-03",
+          "actor": "OPS",
+          "decided_at": -1440,
+          "approved_forecast": -180,
+          "directive": "نوبت آزمون جایگزین اجرا شود"
+        },
+        "observed_result": {
+          "id": 1,
+          "case_id": "EXEC-GOV-03",
+          "decision": "ORDER-YDAY-03",
+          "observed_at": -30,
+          "actual": -45,
+          "evidence": "DEMO-POD-03"
+        },
+        "latest_valid_status": {
+          "sequence": 5,
+          "occurred_at": -30,
+          "actor": "REVIEWER",
+          "status": "RESULT_VERIFIED",
+          "detail": "DEMO-POD-03"
+        },
+        "forecast_error_minutes": 135,
+        "residual_minutes": 75,
+        "remaining_risk_status": "LATE_REALIZED"
+      }
+    },
+    "ceo_queue": [
+      {
+        "id": "EXEC-FIN-01",
+        "promise": "PAY-FAT-01",
+        "issue": "گزینه آزمون بیرونی نیازمند تصمیم و تأیید نقد",
+        "owner": "OPS",
+        "amount": 480,
+        "policy_ceo": 1,
+        "risk": "HIGH",
+        "due": 360,
+        "current_assignment": {
+          "actor": "CEO",
+          "assigned_at": -90,
+          "accept_by": 120,
+          "accepted_at": null
+        },
+        "approved_snapshot": null,
+        "observed_result": null,
+        "latest_valid_status": {
+          "sequence": 1,
+          "occurred_at": -90,
+          "actor": "ASSESSOR",
+          "status": "CEO_DECISION_REQUIRED",
+          "detail": "خارج از سقف اختیار واحد"
+        },
+        "forecast_error_minutes": null,
+        "residual_minutes": null,
+        "remaining_risk_status": "UNVERIFIED"
+      }
+    ],
+    "high_risk_watch": [
+      "EXEC-GOV-02",
+      "EXEC-GOV-03"
+    ],
+    "changes_since_visit": [
+      {
+        "sequence": 2,
+        "case_id": "EXEC-GOV-02",
+        "occurred_at": -180,
+        "actor": "EXPERT",
+        "status": "REPORTED",
+        "detail": "پرونده تحت اختیار واحد"
+      },
+      {
+        "sequence": 1,
+        "case_id": "EXEC-FIN-01",
+        "occurred_at": -90,
+        "actor": "ASSESSOR",
+        "status": "CEO_DECISION_REQUIRED",
+        "detail": "خارج از سقف اختیار واحد"
+      },
+      {
+        "sequence": 4,
+        "case_id": "EXEC-GOV-03",
+        "occurred_at": -90,
+        "actor": "OPS",
+        "status": "IN_EXECUTION",
+        "detail": "تحویل در انتظار شاهد"
+      },
+      {
+        "sequence": 5,
+        "case_id": "EXEC-GOV-03",
+        "occurred_at": -30,
+        "actor": "REVIEWER",
+        "status": "RESULT_VERIFIED",
+        "detail": "DEMO-POD-03"
+      },
+      {
+        "sequence": 6,
+        "case_id": "EXEC-GOV-02",
+        "occurred_at": 0,
+        "actor": "OPS-DEPUTY",
+        "status": "DEPUTY_ASSIGNED",
+        "detail": "OPS"
+      }
+    ],
+    "previous_visit": -240,
+    "role_views": {
+      "OWNER": [
+        {
+          "id": "EXEC-FIN-01",
+          "promise": "PAY-FAT-01",
+          "due": 360
+        },
+        {
+          "id": "EXEC-GOV-02",
+          "promise": "DELIVERY-02",
+          "due": 720
+        },
+        {
+          "id": "EXEC-GOV-03",
+          "promise": "DELIVERY-03",
+          "due": -120
+        }
+      ],
+      "EXPERT": [
+        {
+          "id": "EXEC-FIN-01",
+          "issue": "گزینه آزمون بیرونی نیازمند تصمیم و تأیید نقد"
+        },
+        {
+          "id": "EXEC-GOV-02",
+          "issue": "خرابی ایستگاه؛ دامنه اختیار واحد"
+        },
+        {
+          "id": "EXEC-GOV-03",
+          "issue": "پیگیری دستور اجرایی روز قبل"
+        }
+      ],
+      "ASSESSOR": [
+        {
+          "id": "EXEC-FIN-01",
+          "risk": "HIGH",
+          "amount": 480
+        },
+        {
+          "id": "EXEC-GOV-02",
+          "risk": "HIGH",
+          "amount": 140
+        },
+        {
+          "id": "EXEC-GOV-03",
+          "risk": "HIGH",
+          "amount": 170
+        }
+      ],
+      "DECIDER": [
+        {
+          "id": "EXEC-FIN-01",
+          "assignment": {
+            "actor": "CEO",
+            "assigned_at": -90,
+            "accept_by": 120,
+            "accepted_at": null
+          }
+        },
+        {
+          "id": "EXEC-GOV-02",
+          "assignment": {
+            "actor": "OPS-DEPUTY",
+            "assigned_at": 0,
+            "accept_by": 60,
+            "accepted_at": null
+          }
+        },
+        {
+          "id": "EXEC-GOV-03",
+          "assignment": {
+            "actor": "OPS",
+            "assigned_at": -1560,
+            "accept_by": -1500,
+            "accepted_at": -1530
+          }
+        }
+      ]
+    },
+    "yesterday_directive": {
+      "id": "EXEC-GOV-03",
+      "promise": "DELIVERY-03",
+      "issue": "پیگیری دستور اجرایی روز قبل",
+      "owner": "OPS",
+      "amount": 170,
+      "policy_ceo": 0,
+      "risk": "HIGH",
+      "due": -120,
+      "current_assignment": {
+        "actor": "OPS",
+        "assigned_at": -1560,
+        "accept_by": -1500,
+        "accepted_at": -1530
+      },
+      "approved_snapshot": {
+        "id": "ORDER-YDAY-03",
+        "case_id": "EXEC-GOV-03",
+        "actor": "OPS",
+        "decided_at": -1440,
+        "approved_forecast": -180,
+        "directive": "نوبت آزمون جایگزین اجرا شود"
+      },
+      "observed_result": {
+        "id": 1,
+        "case_id": "EXEC-GOV-03",
+        "decision": "ORDER-YDAY-03",
+        "observed_at": -30,
+        "actual": -45,
+        "evidence": "DEMO-POD-03"
+      },
+      "latest_valid_status": {
+        "sequence": 5,
+        "occurred_at": -30,
+        "actor": "REVIEWER",
+        "status": "RESULT_VERIFIED",
+        "detail": "DEMO-POD-03"
+      },
+      "forecast_error_minutes": 135,
+      "residual_minutes": 75,
+      "remaining_risk_status": "LATE_REALIZED"
+    }
+  },
+  "finance": {
+    "funding": [
+      {
+        "option": "EXTERNAL-FAT",
+        "project": "SYN-A",
+        "required": 650,
+        "deadline": "2026-11-26T12:00:00+03:30",
+        "available_by_deadline": 400,
+        "eventual": 650,
+        "gap": 250,
+        "feasible": false,
+        "funding_evidence": [
+          {
+            "reference": "SYN-FUND-01",
+            "available_at": "2026-11-26T10:00:00+03:30",
+            "amount": 400
+          },
+          {
+            "reference": "SYN-FUND-02",
+            "available_at": "2026-11-26T13:00:00+03:30",
+            "amount": 250
+          }
+        ]
+      },
+      {
+        "option": "QUALIFIED-LOCAL",
+        "project": "SYN-A",
+        "required": 400,
+        "deadline": "2026-11-26T14:00:00+03:30",
+        "available_by_deadline": 400,
+        "eventual": 400,
+        "gap": 0,
+        "feasible": true,
+        "funding_evidence": [
+          {
+            "reference": "SYN-FUND-03",
+            "available_at": "2026-11-26T12:30:00+03:30",
+            "amount": 400
+          }
+        ]
+      }
+    ],
+    "cost": {
+      "id": "SYN-COST-01",
+      "wbs": "SYN-WBS-A",
+      "order": "SYN-ORD-A",
+      "period": "2026-11",
+      "baseline": "BL-01",
+      "currency": "M_TOMAN",
+      "pv": 800,
+      "ev": 800,
+      "ac": 950,
+      "cpi": 0.8421,
+      "cv": -150,
+      "postings": [
+        {
+          "document": "SYN-LAB-01",
+          "line": 1,
+          "amount": 450,
+          "period": "2026-11",
+          "currency": "M_TOMAN",
+          "matched_document": null,
+          "included": true,
+          "reason": null
+        },
+        {
+          "document": "SYN-MAT-01",
+          "line": 1,
+          "amount": 500,
+          "period": "2026-11",
+          "currency": "M_TOMAN",
+          "matched_document": null,
+          "included": true,
+          "reason": null
+        },
+        {
+          "document": "SYN-REV-01",
+          "line": 1,
+          "amount": 100,
+          "period": "2026-12",
+          "currency": "M_TOMAN",
+          "matched_document": null,
+          "included": false,
+          "reason": "DIFFERENT_PERIOD"
+        },
+        {
+          "document": "SYN-SET-01",
+          "line": 1,
+          "amount": 500,
+          "period": "2026-11",
+          "currency": "M_TOMAN",
+          "matched_document": "SYN-MAT-01",
+          "included": false,
+          "reason": "INTERNAL_TRANSFER"
+        }
+      ]
+    },
+    "cash": {
+      "scenario": "EXEC-FIN-01",
+      "nodes": {
+        "DELIVERY": [
+          5,
+          10
+        ],
+        "FAT": [
+          3,
+          8
+        ],
+        "PART-A": [
+          2,
+          7
+        ],
+        "PART-B": [
+          2,
+          7
+        ],
+        "RECEIVABLE": [
+          20,
+          25
+        ]
+      },
+      "edges": [
+        [
+          "DELIVERY",
+          "RECEIVABLE"
+        ],
+        [
+          "FAT",
+          "DELIVERY"
+        ],
+        [
+          "PART-A",
+          "FAT"
+        ],
+        [
+          "PART-B",
+          "FAT"
+        ]
+      ],
+      "stages": [
+        {
+          "stage": "SYN-PAY-01",
+          "node": "RECEIVABLE",
+          "principal": 60000,
+          "date_baseline": "2026-12-15",
+          "date_forecast": "2026-12-20",
+          "delay_days": 5,
+          "annual_rate_bps": 3000,
+          "observed_receipt": 0,
+          "timing_cost_m_toman": 246.58
+        }
+      ],
+      "independent_metrics": [
+        {
+          "metric": "manufacturing_cost_effect",
+          "value": 50,
+          "unit": "M_TOMAN",
+          "evidence": "SYN-CONTROLLER-REVIEW"
+        },
+        {
+          "metric": "released_capacity",
+          "value": 8,
+          "unit": "HOUR",
+          "evidence": "SYN-CAPACITY-OBSERVATION"
+        }
+      ]
+    },
+    "data_class": "DEMO_SYNTHETIC"
+  }
+}

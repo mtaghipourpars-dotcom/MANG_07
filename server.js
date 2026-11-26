@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openWorkspaceDb, validateWorkspaceWrite, workspaceCookie } from './server/workspace-db.js';
+import { openTotalDemo, totalDemoRouter } from './server/total-demo.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -27,6 +28,13 @@ const storage = openWorkspaceDb(databasePath, {
   fixture: path.join(directory, 'data', 'product-project-fixture.json'),
   reference: path.join(directory, 'data', 'reference-datasets.json')
 });
+
+const scenarioBankPath = nearestRealPath(path.resolve(process.env.PVPT_TOTAL_DEMO_DB ||
+  path.join(directory, '.pvpt', 'total-demo.sqlite')));
+if (publicDirectories.some(dir => scenarioBankPath === dir || scenarioBankPath.startsWith(dir + path.sep))) {
+  throw new Error('PVPT_TOTAL_DEMO_DB must be outside the served project directories.');
+}
+const scenarioBank = openTotalDemo(scenarioBankPath);
 
 app.disable('x-powered-by');
 app.use('/api', (_request, response, next) => {
@@ -65,9 +73,9 @@ app.get('/data/product-project-fixture.json', (_request, response) => {
   response.set('Cache-Control', 'no-store').json(storage.readReference('fixture'));
 });
 
-app.get('/api/workspace', (request, response) => {
+function getWorkspace(request, response, create) {
   let id = storage.workspaceId(readCookie(request, workspaceCookie));
-  if (!id) {
+  if (!id && create) {
     const created = storage.createWorkspace();
     id = created.id;
     response.cookie(workspaceCookie, created.token, {
@@ -77,7 +85,11 @@ app.get('/api/workspace', (request, response) => {
       maxAge: 365 * 24 * 60 * 60 * 1000
     });
   }
-  response.json(storage.readWorkspace(id));
+  return id;
+}
+
+app.get('/api/workspace', (request, response) => {
+  response.json(storage.readWorkspace(getWorkspace(request, response, true)));
 });
 
 app.put('/api/workspace/:section', express.json({ limit: '2mb' }), (request, response) => {
@@ -92,6 +104,8 @@ app.put('/api/workspace/:section', express.json({ limit: '2mb' }), (request, res
   if (result.conflict) return response.status(409).json({ error: 'revision_conflict', revision: result.revision, value: result.value });
   response.json(result);
 });
+
+app.use('/api/total-demo', totalDemoRouter({ bank: scenarioBank, storage, getWorkspace, allowWrite: sameOrigin }));
 
 app.use('/api', (_request, response) => response.status(404).json({ error: 'not_found' }));
 
@@ -116,8 +130,18 @@ const server = app.listen(port, '0.0.0.0', () => {
   console.log(`PVPT server running on http://0.0.0.0:${server.address().port}`);
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.once(signal, () => {
-    server.close(() => storage.close());
+let stopping = false;
+function stop() {
+  if (stopping) return;
+  stopping = true;
+  // Let in-flight requests finish first. A browser may keep a connection
+  // open across restart, so bound the time it can delay shutdown.
+  const deadline = setTimeout(() => server.closeAllConnections(), 2000);
+  deadline.unref();
+  server.close(() => {
+    clearTimeout(deadline);
+    scenarioBank.close();
+    storage.close();
   });
 }
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, stop);

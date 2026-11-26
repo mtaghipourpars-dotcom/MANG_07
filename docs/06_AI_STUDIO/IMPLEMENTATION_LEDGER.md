@@ -196,3 +196,11 @@ For every completed gate append:
 - سناریوی ایستگاه آزمون مشترک از ثبت چالش تا ثبت نتیجه و درس‌آموخته، به‌همراه حالت‌های منفی و اصلاح فرم‌های موجود، روی دسکتاپ و موبایل Chromium اجرا شد. در پیمایش مستقل، ۱۱ منو و ۴۹ نمای داخلی در هر پروفایل باز شدند.
 - با ورودی و زمان ثابت، DOM و خروجی تصویری صفحهٔ اصلی در مقایسه با خط مبنا برابر بودند. مقایسه با خط مبنای اجرایی انجام شد. فایل مرجع، HTML، CSS و دادهٔ اولیه ثابت ماندند.
 - [گزارش، محاسبات و حدود صحه‌گذاری](../07_MANG_07/VALIDATION.md)
+
+## Total Demo — scenario bank and workspace increment
+
+See [the Persian build contract and verification status](../09_TOTAL_DEMO/README.md). The scenario matrix and executive evidence were reproduced locally. Browser acceptance remains pending CI.
+
+## Total Demo — database and four workspaces
+
+[`DEV`](../../DEV/README.md) records the machine contract, setup and acceptance criteria. The scenario bank is reproduced from reviewed evidence and opened read-only. The separate workspace database records training actions with optimistic concurrency. Browser QA and human acceptance have distinct evidence requirements.

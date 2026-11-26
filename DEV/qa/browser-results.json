@@ -1,0 +1,486 @@
+{
+  "commit": "329109e05c4287d4c753d591d67a5168da089a6c",
+  "runner": "Playwright / Chromium 158",
+  "results": [
+    {
+      "file": "demo-regression.spec.js",
+      "test": "decision navigation stays free of uncaught browser errors",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "decision navigation stays free of uncaught browser errors",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "DEMO-01 rejects borrowing and substitute validation that miss the commitment window",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "DEMO-01 rejects borrowing and substitute validation that miss the commitment window",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "DEMO-02 external test passes modeled capacity, budget and readiness checks",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "DEMO-02 external test passes modeled capacity, budget and readiness checks",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "decision brief closes with Escape and can be reopened",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-regression.spec.js",
+      "test": "decision brief closes with Escape and can be reopened",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "executive home clearly separates public catalogue facts from unavailable internal and financial data",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "executive home clearly separates public catalogue facts from unavailable internal and financial data",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "portfolio supports six-family navigation, catalogue search and product detail",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "portfolio supports six-family navigation, catalogue search and product detail",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "projects view exposes the complete project-to-cell-to-order-to-routing trace and truth boundary",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "projects view exposes the complete project-to-cell-to-order-to-routing trace and truth boundary",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "DEMO-01 calculates the expedite option against the 3-day window and 200m budget",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "DEMO-01 calculates the expedite option against the 3-day window and 200m budget",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "DEMO-02 calculates a 6-hour capacity deficit and checks the hard gates",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "DEMO-02 calculates a 6-hour capacity deficit and checks the hard gates",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "infeasible options are blocked and feasible options can be selected only as demo",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "infeasible options are blocked and feasible options can be selected only as demo",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "intervention comparison returns explicit feasible and infeasible explanations",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "intervention comparison returns explicit feasible and infeasible explanations",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "issue capture persists in the server database across reload",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "issue capture persists in the server database across reload",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "decision, observed outcome and lesson loop is interactive and explicitly labelled",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "decision, observed outcome and lesson loop is interactive and explicitly labelled",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "resource, cash and source-readiness pages make missing real data explicit",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "resource, cash and source-readiness pages make missing real data explicit",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "all primary navigation destinations work without uncaught browser errors",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "demo-smoke.spec.js",
+      "test": "all primary navigation destinations work without uncaught browser errors",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "a two-order test-station interruption reaches an auditable value forecast, decision, and lesson",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "a two-order test-station interruption reaches an auditable value forecast, decision, and lesson",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "changing a stop assumption invalidates the forecast without destroying the previous estimate",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "changing a stop assumption invalidates the forecast without destroying the previous estimate",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "missing or inconsistent impact input never updates the saved record",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "missing or inconsistent impact input never updates the saved record",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "existing demo entry forms persist and display their results",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-case.spec.js",
+      "test": "existing demo entry forms persist and display their results",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "SQLite survives Express restart and rejects stale concurrent writes without mixing workspaces",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "SQLite survives Express restart and rejects stale concurrent writes without mixing workspaces",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "database-backed case survives clearing browser storage and restarting server",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "database-backed case survives clearing browser storage and restarting server",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "a rejected write leaves the database unchanged and the case is not confirmed",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "a rejected write leaves the database unchanged and the case is not confirmed",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "linked operation demand recalculates the shortage and saves a separate simulation on request",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "linked operation demand recalculates the shortage and saves a separate simulation on request",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "a linked option forecast and deadline react live while the signed value map stays fixed",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "a linked option forecast and deadline react live while the signed value map stays fixed",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "existing browser data imports once and cannot overwrite a database record",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-database.spec.js",
+      "test": "existing browser data imports once and cannot overwrite a database record",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-governance.spec.js",
+      "test": "attachment scenarios independently verify deterministic routing and estimates",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "mang07-governance.spec.js",
+      "test": "attachment scenarios independently verify deterministic routing and estimates",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "PPOM fixture passes referential-integrity and provenance validation",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "PPOM fixture passes referential-integrity and provenance validation",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "six canonical product families are stable and unique",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "six canonical product families are stable and unique",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "public catalogue evidence never implies a real project assignment",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "public catalogue evidence never implies a real project assignment",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "unknown product-project relationship remains null and unverified",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "unknown product-project relationship remains null and unverified",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "validator rejects orphan links, duplicate IDs, and false verification",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "product-project-model.spec.js",
+      "test": "validator rejects orphan links, duplicate IDs, and false verification",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-demo-workspaces.spec.js",
+      "test": "four demo workspaces share one case and preserve the approved forecast after observation",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-demo-workspaces.spec.js",
+      "test": "four demo workspaces share one case and preserve the approved forecast after observation",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "scenario bank filters, paginates, and preserves unknown observations",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "scenario bank filters, paginates, and preserves unknown observations",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "scenario bank rejects invalid selection and shows executive evidence with provenance",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "scenario bank rejects invalid selection and shows executive evidence with provenance",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "total demo opens four workspaces in both directions and themes",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "total demo opens four workspaces in both directions and themes",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "persisted case enforces role and revision gates as ownership moves across workspaces",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "persisted case enforces role and revision gates as ownership moves across workspaces",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "unknown evidence prevents approval and keeps the current revision",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "unknown evidence prevents approval and keeps the current revision",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "browser hands the same scenario through all four workspaces and reload retains its result",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "total-system.spec.js",
+      "test": "browser hands the same scenario through all four workspaces and reload retains its result",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "visual-smoke.spec.js",
+      "test": "desktop executive workbench and decision brief render without horizontal overflow",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "visual-smoke.spec.js",
+      "test": "desktop executive workbench and decision brief render without horizontal overflow",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    },
+    {
+      "file": "visual-smoke.spec.js",
+      "test": "mobile executive workbench and decision brief fit the viewport",
+      "profile": "chromium-desktop",
+      "result": "passed"
+    },
+    {
+      "file": "visual-smoke.spec.js",
+      "test": "mobile executive workbench and decision brief fit the viewport",
+      "profile": "chromium-mobile",
+      "result": "passed"
+    }
+  ]
+}

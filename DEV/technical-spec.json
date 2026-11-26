@@ -1,0 +1,44 @@
+{
+  "specVersion": 1,
+  "product": "PVPT",
+  "scope": "TOTAL_DEMO",
+  "apiContract": "DEV/api-contract.json",
+  "contracts": ["docs/09_TOTAL_DEMO/README.md", "docs/08_SAP_COMMITMENTS/06_ROLE_UI_FA.md", "docs/06_AI_STUDIO/SCREEN_REFERENCE_CONTRACT.md"],
+  "data": {
+    "runtimeAuthority": "SQLite",
+    "workspaceDatabaseEnv": "PVPT_DATABASE_PATH",
+    "scenarioDatabaseEnv": "PVPT_TOTAL_DEMO_DB",
+    "scenarioBuilder": "scenario-lab/build_bank.py",
+    "approvedBootstrapFiles": ["data/product-project-fixture.json", "data/reference-datasets.json"],
+    "scenarioEvidence": ["scenario-lab/evidence/summary.json", "scenario-lab/evidence/executive.json"],
+    "allowGeneratedBusinessRecords": false,
+    "allowSeedFromNarrative": false,
+    "missingValue": null
+  },
+  "interface": {
+    "home": "/",
+    "homeReference": "demo/main.png",
+    "totalDemo": "/demo/total-system/",
+    "locales": {"fa": "rtl", "en": "ltr"},
+    "themes": ["light", "dark"],
+    "workspaces": [
+      {"id": "expert", "level": "specialist", "label": {"fa": "رخداد و منبع", "en": "Incident and resource"}},
+      {"id": "owner", "level": "manager", "label": {"fa": "مالک تعهد", "en": "Commitment owner"}},
+      {"id": "assessor", "level": "manager", "label": {"fa": "ارزیاب حوزه", "en": "Domain assessor"}},
+      {"id": "executive", "level": "executive", "label": {"fa": "تصمیم‌گیر", "en": "Decision maker"}}
+    ]
+  },
+  "failureActions": {"contractMissing": "BLOCK_STAGE", "testFailed": "FIX_AND_REPEAT_DEPENDENTS", "sourceMissing": "REPORT_UNKNOWN", "uatNotObserved": "AWAIT_UAT"},
+  "stages": [
+    {"id": "architecture", "dependsOn": [], "checks": ["spec-valid", "db-authority", "ui-reference"]},
+    {"id": "specification", "dependsOn": ["architecture"], "checks": ["traceability", "approved-inputs", "state-contract"]},
+    {"id": "backend", "dependsOn": ["specification"], "checks": ["scope", "session", "revision-conflict", "independent-verification"]},
+    {"id": "engines", "dependsOn": ["backend"], "checks": ["two-way-link", "reservation-overlap", "single-cash-effect", "forecast-history", "unknown-propagation"]},
+    {"id": "frontend", "dependsOn": ["specification"], "checks": ["four-workspaces", "rtl-ltr", "light-dark", "home-reference", "responsive"]},
+    {"id": "integration", "dependsOn": ["frontend", "engines"], "checks": ["unit", "integration", "browser", "scenario-replay"]},
+    {"id": "uat", "dependsOn": ["integration"], "checks": ["observed-user-acceptance"]},
+    {"id": "handover", "dependsOn": ["uat"], "checks": ["commit-bound-evidence", "complete-dev-record"]}
+  ],
+  "evidenceFields": ["stageId", "checkId", "commit", "command", "status", "observed", "artifact"],
+  "evidenceStatuses": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"]
+}

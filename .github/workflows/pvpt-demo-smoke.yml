@@ -2,7 +2,7 @@ name: PVPT Demo Browser Smoke Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, demo/total-system]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -27,8 +27,22 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Validate Agent Skills
         run: npm run validate:skills
-      - name: Run demo smoke tests
-        run: npm run test:demo
+      - name: Validate the implementation contract
+        run: node DEV/validate-spec.mjs
+      - name: Rebuild and verify the scenario bank
+        run: |
+          mkdir -p test-results
+          python3 scenario-lab/run.py --db "$RUNNER_TEMP/pvpt.sqlite" --report "$RUNNER_TEMP/matrix.json"
+          python3 scenario-lab/executive.py --db "$RUNNER_TEMP/pvpt.sqlite" --report "$RUNNER_TEMP/executive.json"
+          python3 -m unittest discover -s scenario-lab -p 'test_*.py'
+          diff -u scenario-lab/evidence/summary.json "$RUNNER_TEMP/matrix.json"
+          diff -u scenario-lab/evidence/executive.json "$RUNNER_TEMP/executive.json"
+          python3 scenario-lab/build_bank.py --db "$RUNNER_TEMP/total-demo.sqlite"
+      - name: Run desktop and mobile browser scenarios
+        env:
+          PVPT_TOTAL_DEMO_DB: ${{ runner.temp }}/total-demo.sqlite
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/results.json
+        run: npm run test:demo -- --reporter=list,json
       - name: Upload browser QA screenshots and reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -30,9 +30,8 @@ function transaction(db, run) {
 function migrate(db) {
   transaction(db, () => {
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 1) throw new Error('The PVPT database schema is newer than this application.');
-    if (version === 1) return;
-    db.exec(`
+    if (version > 3) throw new Error('The PVPT database schema is newer than this application.');
+    if (version === 0) db.exec(`
       CREATE TABLE workspaces (
         id TEXT PRIMARY KEY,
         created_at TEXT NOT NULL
@@ -61,7 +60,111 @@ function migrate(db) {
         value TEXT NOT NULL CHECK(json_valid(value))
       ) STRICT;
 
-      PRAGMA user_version = 1;
+    `);
+    if (version < 2) db.exec(`
+      CREATE TABLE total_demo_actions (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        source TEXT NOT NULL,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, scenario_id, revision)
+      ) STRICT;
+
+      PRAGMA user_version = 2;
+    `);
+    if (version < 3) db.exec(`
+      CREATE TABLE total_demo_approvals (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        decision_revision INTEGER NOT NULL CHECK(decision_revision > 0),
+        source TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        option_code TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        approved_effects TEXT NOT NULL CHECK(json_valid(approved_effects)),
+        at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, scenario_id, decision_revision)
+      ) STRICT;
+
+      CREATE TRIGGER total_demo_approvals_no_update BEFORE UPDATE ON total_demo_approvals
+        BEGIN SELECT RAISE(ABORT, 'approved forecast snapshot is immutable'); END;
+      CREATE TRIGGER total_demo_approvals_no_delete BEFORE DELETE ON total_demo_approvals
+        BEGIN SELECT RAISE(ABORT, 'approved forecast snapshot is immutable'); END;
+
+      CREATE TABLE total_demo_observations (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        decision_revision INTEGER NOT NULL CHECK(decision_revision > 0),
+        actor TEXT NOT NULL,
+        verifier TEXT,
+        outcome TEXT NOT NULL,
+        observed_effects TEXT NOT NULL CHECK(json_valid(observed_effects)),
+        reason TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, scenario_id, revision),
+        FOREIGN KEY(workspace_id, scenario_id, decision_revision)
+          REFERENCES total_demo_approvals(workspace_id, scenario_id, decision_revision)
+      ) STRICT;
+
+      CREATE TRIGGER total_demo_observations_no_update BEFORE UPDATE ON total_demo_observations
+        BEGIN SELECT RAISE(ABORT, 'observation record is immutable'); END;
+
+      CREATE TABLE total_demo_reservations (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        decision_revision INTEGER NOT NULL CHECK(decision_revision > 0),
+        resource TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        start_min INTEGER NOT NULL,
+        end_min INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        CHECK(start_min < end_min),
+        CHECK(expires_at > recorded_at),
+        PRIMARY KEY(workspace_id, id),
+        FOREIGN KEY(workspace_id, scenario_id, decision_revision)
+          REFERENCES total_demo_approvals(workspace_id, scenario_id, decision_revision)
+      ) STRICT;
+
+      CREATE INDEX total_demo_res_window
+        ON total_demo_reservations(workspace_id, resource, start_min, end_min, expires_at);
+
+      CREATE TABLE total_demo_reservation_attempts (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        decision_revision INTEGER,
+        resource TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        start_min INTEGER NOT NULL,
+        end_min INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, id)
+      ) STRICT;
+
+      CREATE TABLE total_demo_reservation_conflicts (
+        workspace_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        reservation_id TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, attempt_id, reservation_id),
+        FOREIGN KEY(workspace_id, attempt_id) REFERENCES total_demo_reservation_attempts(workspace_id, id),
+        FOREIGN KEY(workspace_id, reservation_id) REFERENCES total_demo_reservations(workspace_id, id)
+      ) STRICT;
+
+      PRAGMA user_version = 3;
     `);
   });
 }
@@ -249,6 +352,86 @@ export function openWorkspaceDb(filename, seeds) {
     SET revision = excluded.revision, value = excluded.value, updated_at = excluded.updated_at
   `);
   const audit = db.prepare('INSERT INTO workspace_changes(workspace_id, name, revision, changed_at) VALUES (?, ?, ?, ?)');
+  const readActions = db.prepare(`
+    SELECT revision, action, actor, status, reason, at FROM total_demo_actions
+    WHERE workspace_id = ? AND scenario_id = ? ORDER BY revision
+  `);
+  const latestAction = db.prepare(`
+    SELECT revision, source FROM total_demo_actions
+    WHERE workspace_id = ? AND scenario_id = ? ORDER BY revision DESC LIMIT 1
+  `);
+  const addAction = db.prepare(`
+    INSERT INTO total_demo_actions (workspace_id, scenario_id, revision, source, action, actor, status, reason, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const readApproval = db.prepare(`
+    SELECT decision_revision, source, actor, option_code, reason, approved_effects, at
+    FROM total_demo_approvals
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY decision_revision DESC LIMIT 1
+  `);
+  const addApproval = db.prepare(`
+    INSERT INTO total_demo_approvals (workspace_id, scenario_id, decision_revision, source, actor, option_code, reason, approved_effects, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const readObservations = db.prepare(`
+    SELECT revision, decision_revision, actor, verifier, outcome, observed_effects, reason, at
+    FROM total_demo_observations
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY revision
+  `);
+  const addObservation = db.prepare(`
+    INSERT INTO total_demo_observations (workspace_id, scenario_id, revision, decision_revision, actor, verifier, outcome, observed_effects, reason, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const readCaseReservations = db.prepare(`
+    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
+    FROM total_demo_reservations
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY start_min, id
+  `);
+  const readPortfolioReservations = db.prepare(`
+    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
+    FROM total_demo_reservations
+    WHERE workspace_id = ? AND (? IS NULL OR resource = ?)
+    ORDER BY start_min, id
+  `);
+  const readReservationAttempts = db.prepare(`
+    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at
+    FROM total_demo_reservation_attempts
+    WHERE workspace_id = ? AND (? IS NULL OR scenario_id = ?)
+    ORDER BY rowid DESC LIMIT 50
+  `);
+  const readAttemptConflicts = db.prepare(`
+    SELECT c.reservation_id, r.scenario_id, r.order_id, r.owner, r.start_min, r.end_min
+    FROM total_demo_reservation_conflicts c
+    JOIN total_demo_reservations r ON r.workspace_id = c.workspace_id AND r.id = c.reservation_id
+    WHERE c.workspace_id = ? AND c.attempt_id = ?
+    ORDER BY c.reservation_id
+  `);
+  const findOverlaps = db.prepare(`
+    SELECT id, scenario_id, order_id, owner, start_min, end_min
+    FROM total_demo_reservations
+    WHERE workspace_id = ? AND resource = ? AND expires_at > ? AND start_min < ? AND end_min > ?
+    ORDER BY id
+  `);
+  const addAttempt = db.prepare(`
+    INSERT INTO total_demo_reservation_attempts
+      (id, workspace_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateAttemptStatus = db.prepare(`
+    UPDATE total_demo_reservation_attempts SET status = ? WHERE workspace_id = ? AND id = ?
+  `);
+  const addReservation = db.prepare(`
+    INSERT INTO total_demo_reservations
+      (id, workspace_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const addConflict = db.prepare(`
+    INSERT INTO total_demo_reservation_conflicts (workspace_id, attempt_id, reservation_id)
+    VALUES (?, ?, ?)
+  `);
   const dataset = db.prepare('SELECT value FROM reference_datasets WHERE name = ?');
   const reference = JSON.parse(dataset.get('reference')?.value ?? '{}');
   const fixture = JSON.parse(dataset.get('fixture')?.value ?? '{}');
@@ -290,6 +473,98 @@ export function openWorkspaceDb(filename, seeds) {
         update.run(id, section, revision + 1, JSON.stringify(value), stamp);
         audit.run(id, section, revision + 1, stamp);
         return { revision: revision + 1, value };
+      });
+    },
+    readTotalDemoHistory(workspace, scenario) {
+      return readActions.all(workspace, scenario);
+    },
+    readTotalDemoApproval(workspace, scenario) {
+      const row = readApproval.get(workspace, scenario);
+      if (!row) return null;
+      return {
+        decisionRevision: row.decision_revision,
+        source: row.source,
+        actor: row.actor,
+        option: row.option_code,
+        reason: row.reason,
+        effects: JSON.parse(row.approved_effects),
+        at: row.at,
+      };
+    },
+    readTotalDemoObservations(workspace, scenario) {
+      return readObservations.all(workspace, scenario).map(row => ({
+        revision: row.revision,
+        decisionRevision: row.decision_revision,
+        actor: row.actor,
+        verifier: row.verifier,
+        outcome: row.outcome,
+        effects: JSON.parse(row.observed_effects),
+        reason: row.reason,
+        at: row.at,
+      }));
+    },
+    readTotalDemoReservations(workspace, { scenario = null, resource = null } = {}) {
+      const reservations = scenario
+        ? readCaseReservations.all(workspace, scenario)
+        : readPortfolioReservations.all(workspace, resource, resource);
+      const attempts = readReservationAttempts.all(workspace, scenario, scenario).map(attempt => ({
+        ...attempt,
+        conflicts: readAttemptConflicts.all(workspace, attempt.id),
+      }));
+      return { reservations, attempts };
+    },
+    appendTotalDemoAction(workspace, scenario, revision, record) {
+      return transaction(db, () => {
+        const latest = latestAction.get(workspace, scenario);
+        if ((latest?.revision ?? 0) !== revision) return { error: 'revision_conflict' };
+        if (latest && latest.source !== record.source) return { error: 'scenario_source_changed' };
+        const stamp = new Date().toISOString();
+        const nextRevision = revision + 1;
+        addAction.run(workspace, scenario, nextRevision, record.source, record.action, record.actor,
+          record.status, record.reason, stamp);
+        if (record.action === 'APPROVE' && record.approvedEffects) {
+          addApproval.run(workspace, scenario, nextRevision, record.source, record.actor,
+            record.optionCode || '', record.reason, JSON.stringify(record.approvedEffects), stamp);
+        }
+        if (record.action === 'OBSERVE' && record.observedEffects) {
+          const approval = readApproval.get(workspace, scenario);
+          if (!approval) return { error: 'approval_required' };
+          addObservation.run(workspace, scenario, nextRevision, approval.decision_revision,
+            record.actor, record.verifier ?? null, record.outcome || 'PENDING',
+            JSON.stringify(record.observedEffects), record.reason, stamp);
+        }
+        return { revision: nextRevision };
+      });
+    },
+    reserveTotalDemoCapacity(workspace, request) {
+      return transaction(db, () => {
+        const { scenarioId, decisionRevision, resource, owner, orderId, start, end, expires, now } = request;
+        const stamp = new Date().toISOString();
+        const attemptId = 'RES-' + randomBytes(6).toString('hex').toUpperCase();
+        const approval = readApproval.get(workspace, scenarioId);
+        const validApproval = approval && (decisionRevision === undefined || approval.decision_revision === decisionRevision);
+        addAttempt.run(attemptId, workspace, scenarioId, validApproval ? approval.decision_revision : null,
+          resource, owner, orderId, start, end, expires, now, 'PENDING', stamp);
+        if (!validApproval) {
+          updateAttemptStatus.run('APPROVAL_REQUIRED', workspace, attemptId);
+          return { id: attemptId, status: 'APPROVAL_REQUIRED', conflictingOrders: [], conflicts: [] };
+        }
+        const collisions = findOverlaps.all(workspace, resource, now, end, start);
+        const status = collisions.length ? 'BLOCKED_CONFLICT' : 'RESERVED';
+        updateAttemptStatus.run(status, workspace, attemptId);
+        if (status === 'RESERVED') {
+          addReservation.run(attemptId, workspace, scenarioId, approval.decision_revision,
+            resource, owner, orderId, start, end, expires, now, stamp);
+        } else {
+          for (const hit of collisions) addConflict.run(workspace, attemptId, hit.id);
+        }
+        return {
+          id: attemptId,
+          status,
+          decisionRevision: approval.decision_revision,
+          conflictingOrders: [...new Set(collisions.map(hit => hit.order_id))].sort(),
+          conflicts: collisions,
+        };
       });
     },
     readReference(name) {
