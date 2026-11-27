@@ -19,7 +19,7 @@ RESOURCE = ('drawing', 'supplier', 'usable_stock', 'work_center',
 
 def anchors():
     def load(name):
-        return json.loads((ROOT / 'data' / name).read_text())
+        return json.loads((ROOT / 'data' / name).read_text(encoding='utf-8'))
     fixture = load('product-project-fixture.json')
     history = load('reference-datasets.json')
     for product in fixture['products']:
@@ -160,7 +160,7 @@ def main():
         build(db, counts)
     report = json.dumps(counts,indent=2,sort_keys=True)+'\n'
     if args.report:
-        args.report.write_text(report)
+        args.report.write_text(report, encoding='utf-8')
     print(report,end='')
 
 
