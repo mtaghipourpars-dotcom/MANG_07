@@ -1,3 +1,13 @@
+## اجرای دموی جامع روی localhost
+
+[معماری و گیت‌ها](DEV/local/architecture.md) · [راهنمای Google AI Studio](DEV/local/ai-studio.md) · [ماتریس انطباق](DEV/local/compliance.md)
+
+با Node.js 22.13+، npm و Python 3.10+ از ریشه مخزن اجرا کنید:
+
+`npm run localhost`
+
+در اولین اجرا وابستگی سرور نصب و بانک آموزشی ساخته می‌شود. نمای جامع در http://127.0.0.1:3000/demo/total-system/ است. تنظیمات اختیاری را از .env.example در .env کپی کنید. توقف با Ctrl+C؛ در شروع بعدی هر دو بانک از دیسک خوانده می‌شوند.
+
 > **ورودی توسعه MANG_07:** [راهنمای شروع و حدود تغییر](START-HERE-MANG-07.md). مسیر ساخت گسترده نسخه‌های قبلی مجوز تغییر این دمو نیست.
 
 # PARS Value Protection Tower (PVPT)

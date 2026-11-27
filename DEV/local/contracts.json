@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "scope": "localhost-training-demo",
+  "baseline": "a7b6a8a2a2e30b26e7096c60212c58286242bdd5",
+  "owners": {
+    "architecture": ["DEV/local/architecture.md", "DEV/local/contracts.json", "DEV/local/ai-studio.md"],
+    "engines": ["scenario-lab", "server/residual-risk.js", "unit"],
+    "backend": ["server.js", "server/total-demo.js", "server/workspace-db.js", "DEV/api-contract.json"],
+    "frontend": ["demo/total-system"],
+    "qa": ["tests", "DEV/local/qa"],
+    "orchestrator": ["scripts/localhost.mjs", "package.json", "README.md"]
+  },
+  "interfaces": [
+    {"producer":"engines","consumer":"backend","source":"scenario-lab/build_bank.py","schema":"scenario-lab/run.py","transport":"SQLite","env":"PVPT_TOTAL_DEMO_DB","mode":"read-only"},
+    {"producer":"backend","consumer":"frontend","source":"DEV/api-contract.json","transport":"HTTP JSON","basePath":"/api/total-demo"},
+    {"producer":"backend","consumer":"backend","source":"server/workspace-db.js","transport":"SQLite","env":"PVPT_DATABASE_PATH","mode":"transactional"},
+    {"producer":"orchestrator","consumer":"qa","source":"scripts/localhost.mjs","transport":"localhost HTTP","command":"npm run localhost"}
+  ],
+  "gates": [
+    {"id":"G0","needs":[],"owner":"architecture","evidence":"DEV/local/architecture.md"},
+    {"id":"G1","needs":["G0"],"owner":"architecture","command":"node DEV/validate-spec.mjs"},
+    {"id":"G2","needs":["G1"],"owner":"backend","checks":["engine-unit","api-integration","sqlite-persistence"]},
+    {"id":"G3","needs":["G1","G2"],"owner":"frontend","checks":["responsive","roles","locale","theme","case-flow"]},
+    {"id":"G4","needs":["G2","G3"],"owner":"qa","command":"npm test"},
+    {"id":"G5","needs":["G4"],"owner":"orchestrator","command":"npm run localhost","checks":["health","bank-summary","persistence-after-restart"]}
+  ],
+  "failure":"return to owning component, rerun failed gate and all dependent gates",
+  "evidenceRequired":["commit","gate","command","outcome","artifact"]
+}

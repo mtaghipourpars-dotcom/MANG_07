@@ -1,1 +1,7 @@
 .pvpt/
+node_modules/
+.env
+__pycache__/
+test-results/
+playwright-report/
+node_modules

@@ -126,8 +126,8 @@ app.use((error, _request, response, next) => {
   response.status(500).json({ error: 'internal_error' });
 });
 
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`PVPT server running on http://0.0.0.0:${server.address().port}`);
+const server = app.listen(port, process.env.PVPT_HOST || '0.0.0.0', () => {
+  console.log(`PVPT server running on http://${server.address().address}:${server.address().port}`);
 });
 
 let stopping = false;

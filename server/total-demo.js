@@ -1,3 +1,4 @@
+import { computeRemainingRisk } from './residual-risk.js';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -83,17 +84,6 @@ function scenarioRow(db, id) {
   return casePattern.test(id) && db.prepare('SELECT * FROM scenario WHERE id = ? AND data_class = ?').get(id, data_class);
 }
 
-function computeRemainingRisk(scenario, observations) {
-  if (!observations.length) return 'UNVERIFIED_OPEN';
-  const latest = observations.at(-1);
-  const chainEffects = (latest.effects || []).filter(item => item.node !== 'donor_delivery');
-  if (!chainEffects.length || chainEffects.some(item => item.observed === null || item.observed === undefined)) {
-    return 'UNVERIFIED_OPEN';
-  }
-  if (chainEffects.some(item => item.observed > item.baseline)) return 'LATE_REALIZED';
-  return 'MET_VERIFIED';
-}
-
 function caseState(storage, workspace, scenario) {
   const history = storage.readTotalDemoHistory(workspace, scenario.id);
   const status = history.at(-1)?.status || 'DRAFT';
@@ -110,6 +100,7 @@ function caseState(storage, workspace, scenario) {
     history,
     allowedActions: availableTransitions(scenario, status).map(([action, actor]) => ({ action, actor })),
     approvedSnapshot,
+    lessons: storage.readTotalDemoLessons(workspace, scenario.id),
     observations,
     reservations,
     reservationAttempts,
@@ -165,6 +156,50 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
       precomputedBankEvidence: true,
     });
   }));
+  router.get('/scenarios/:id/relationships', withScenario((db, _request, response, selected) => {
+    const alternatives = db.prepare(`
+      SELECT id, option, gate, decision FROM scenario
+      WHERE data_class = ? AND anchor = ? AND stage = ? AND profile = ? AND variant = ?
+      ORDER BY id
+    `).all(data_class, selected.anchor, selected.stage, selected.profile, selected.variant);
+    const readEffects = db.prepare('SELECT * FROM effect WHERE scenario = ? ORDER BY rowid');
+    const prefix = [selected.anchor, selected.stage, selected.profile, selected.variant].map(encodeURIComponent).join(':');
+    const challengeId = selected.profile === 'ready' ? null : 'DEMO-ISSUE:' + prefix;
+    const challenge = challengeId && {
+      id: challengeId, anchor: selected.anchor, stage: selected.stage,
+      profile: selected.profile, variant: selected.variant, data_class,
+    };
+    const options = alternatives.map(row => ({
+      scenarioId: row.id, code: row.option, gate: row.gate, decision: row.decision, challengeId,
+    }));
+    const links = [];
+    const unresolved = [];
+    if (challenge) for (const option of options) for (const row of readEffects.all(option.scenarioId)) {
+      const source = { table: 'effect', scenarioId: option.scenarioId, node: row.node };
+      if (row.node !== 'donor_delivery' && row.without_action === null) {
+        unresolved.push({ node: row.node, scenarioId: option.scenarioId, source, status: 'NOT_QUANTIFIED' });
+        continue;
+      }
+      const donor = row.node === 'donor_delivery';
+      if (donor ? (option.code !== 'transfer' || row.proposed === null || row.proposed === row.baseline)
+        : row.without_action === row.baseline) continue;
+      const commitmentId = donor ? 'DEMO-DONOR:' + prefix : 'DEMO-COMMITMENT:' +
+        encodeURIComponent(selected.anchor) + ':' + encodeURIComponent(row.node);
+      links.push({
+        challengeId, commitmentId, node: row.node, kind: donor ? 'SIDE_EFFECT' : 'DIRECT',
+        status: 'MODELLED_BANK_EFFECT', scenarioId: option.scenarioId, optionCode: option.code,
+        physicalOrderId: null, source,
+        values: {
+          baseline: row.baseline, withoutAction: row.without_action, proposed: row.proposed,
+          currentForecast: row.current_forecast, observed: row.observed,
+        },
+      });
+    }
+    response.json({
+      scenarioId: selected.id, data_class, sourceMode: 'DERIVED_PRECOMPUTED_SCENARIO_BANK',
+      operationalStatus: 'INTERNAL_SOURCE_REQUIRED', challenge, options, links, unresolved,
+    });
+  }));
   router.get('/executive', serve((db, _request, response) =>
     response.json({
       data_class,
@@ -196,7 +231,7 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
     if (!allowWrite(request)) return response.status(403).json({ error: 'cross_origin_write' });
     const workspace = getWorkspace(request, response, false);
     if (!workspace) return response.status(428).json({ error: 'workspace_required' });
-    const { revision, action, actor, reason, verifier, recorder } = request.body || {};
+    const { revision, action, actor, reason, verifier, recorder, lesson } = request.body || {};
     if (!Number.isSafeInteger(revision) || revision < 0 || typeof action !== 'string' || typeof actor !== 'string' ||
         typeof reason !== 'string' || !reason.trim() || reason.length > 1000) {
       return response.status(400).json({ error: 'invalid_case_action' });
@@ -206,6 +241,14 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
     }
     if (recorder !== undefined && (typeof recorder !== 'string' || !recorder.trim() || recorder.length > 160)) {
       return response.status(400).json({ error: 'invalid_case_action' });
+    }
+    if (recorder !== undefined && recorder.trim() !== actor) {
+      return response.status(403).json({ error: 'recorder_mismatch' });
+    }
+    if (lesson !== undefined && (action !== 'CLOSE' || !lesson ||
+        ![lesson.text, lesson.applicability].every(value =>
+          typeof value === 'string' && value.trim() && value.length <= 1000))) {
+      return response.status(400).json({ error: 'invalid_lesson' });
     }
     const state = caseState(storage, workspace, scenario);
     if (revision !== state.revision) return response.status(409).json({ error: 'revision_conflict', ...state });
@@ -242,6 +285,7 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
       actor,
       reason: reason.trim(),
       status: next[2],
+      lesson: lesson && { text: lesson.text.trim(), applicability: lesson.applicability.trim() },
       optionCode: scenario.option,
       approvedEffects,
       observedEffects,

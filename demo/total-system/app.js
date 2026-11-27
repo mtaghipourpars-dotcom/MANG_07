@@ -6,7 +6,7 @@ const state = {
   lang: preference('total-demo-language', 'fa', ['fa', 'en']),
   theme: preference('total-demo-theme', 'light', ['light', 'dark']),
   section: 'workspace', role: 'owner', scenario: 'S000013', offset: 0, filters: {}, overview: null,
-  cases: null, detail: null, executive: null, executiveMeta: null, portfolioReservations: null,
+  cases: null, detail: null, relationships: null, executive: null, executiveMeta: null, portfolioReservations: null,
   notice: '', errorCode: '', loading: false, unavailable: false, saving: false
 };
 const actors = {owner:'OWNER', expert:'EXPERT', assessor:'ASSESSOR', executive:'DECIDER'};
@@ -15,7 +15,7 @@ const sectionNames = {workspace:['فضاهای کار و پرونده','Workspac
 const actionNames = {
   REPORT:['ثبت مشاهده','Report observation'],SCOPE:['تأیید دامنه اثر','Confirm scope'],ASSESS:['ثبت ارزیابی','Record assessment'],
   APPROVE:['تصویب آموزشی','Approve training case'],DECLINE:['رد گزینه','Decline option'],EXECUTE:['ثبت اجرای آموزشی','Record training execution'],
-  OBSERVE:['ثبت نتیجه مشاهده‌شده','Record observed result'],CLOSE:['ثبت درس و بستن پرونده','Record lesson and close']
+  OBSERVE:['ثبت نتیجه مشاهده‌شده','Record observed result'],CLOSE:['بستن پرونده','Close case']
 };
 const labels = {
   id:['شناسه','ID'], anchor:['مرجع','Anchor'], stage:['مرحله','Stage'], resource:['منبع','Resource'], option:['گزینه','Option'],
@@ -242,13 +242,17 @@ function lifecycleSeparationCard(detail, record) {
   const approved = record.approvedSnapshot;
   const latestObs = (record.observations || []).at(-1) || null;
   const resCount = (record.reservations || []).length;
+  const simulatedObservation = latestObs?.verificationStatus === 'INTERNAL_SOURCE_REQUIRED'
+    ? ' · ' + t('مشاهده آموزشی؛ تأیید سازمانی نیازمند مرجع داخلی است',
+      'Training observation; enterprise verification requires an internal source')
+    : '';
   return card(t('تفکیک هفت مفهوم مستقل پرونده (مدل و رابط جداگانه)','Seven independent case concepts (separated in model and UI)'),
     metrics([
       [t('۱. گزینه قابل بررسی','1. Reviewable option'), show(detail.option) + ' · ' + show(detail.gate)],
       [t('۲. مصوبه نسخه‌دار','2. Versioned approval'), approved ? code('v' + approved.decisionRevision) + ' · ' + show(approved.actor) : show(null)],
       [t('۳. رزرو ظرفیت (جدا از مصوبه)','3. Capacity reservation (separate)'), show(resCount) + ' · ' + (resCount ? badge(t('رزروشده در SQLite','Reserved in SQLite'), 'good') : badge(t('مصوبه ظرفیت رزرو نمی‌کند','Approval does not reserve'), 'warn'))],
       [t('۴. اجرا (این اجرا / مرجع بانک)','4. Execution (this run / bank)'), (record.history.some(h => h.action === 'EXECUTE') ? show('EXECUTED') : show('NOT_STARTED')) + ' / ' + show(detail.execution)],
-      [t('۵. مشاهده نتیجه (این اجرا / بانک)','5. Observation (this run / bank)'), (latestObs ? code('v' + latestObs.revision) + ' · ' + show(latestObs.outcome) : show(null)) + ' / ' + show(detail.outcome)],
+      [t('۵. مشاهده نتیجه (این اجرا / بانک)','5. Observation (this run / bank)'), (latestObs ? code('v' + latestObs.revision) + ' · ' + show(latestObs.outcome) + simulatedObservation : show(null)) + ' / ' + show(detail.outcome)],
       [t('۶. پیش‌بینی مصوب (تغییرناپذیر)','6. Approved forecast (immutable)'), approved ? badge(t('ثابت در نسخه ','Frozen at v') + approved.decisionRevision, 'good') : show(null)],
       [t('۷. ریسک باقیمانده','7. Remaining risk'), badge(show(record.remainingRiskStatus), record.remainingRiskStatus === 'MET_VERIFIED' ? 'good' : 'warn')]
     ]) +
@@ -257,18 +261,72 @@ function lifecycleSeparationCard(detail, record) {
     'data-lifecycle-panel'
   );
 }
+function caseLessons(record) {
+  const lessons = record.lessons ?? [];
+  if (!lessons.length) return '';
+  return card(t('درس‌آموخته‌های پرونده', 'Case lessons'),
+    table([t('درس', 'Lesson'), t('شرط استفاده مجدد', 'When to reuse'),
+      t('نسخه مصوبه', 'Approval revision'), t('نسخه مشاهده', 'Observation revision')],
+      lessons.map(item => [esc(item.text), esc(item.applicability),
+        show(item.decisionRevision), show(item.observationRevision)])), 'data-case-lessons');
+}
+
+function relationshipRows(links, commitmentId = '') {
+  const selected = commitmentId ? links.filter(link => link.commitmentId === commitmentId) : links;
+  return table([
+    t('تعهد آموزشی', 'Training commitment'), t('رابطه', 'Relationship'),
+    t('گزینه', 'Option'), t('سفارش واقعی', 'Physical order'), t('شاهد', 'Evidence')
+  ], selected.map(link => [
+    code(link.commitmentId),
+    link.kind === 'SIDE_EFFECT' ? t('اثر جانبی', 'Side effect') : t('اثر مستقیم', 'Direct effect'),
+    button(show(link.optionCode), 'data-open-scenario="' + esc(link.scenarioId) + '"'),
+    code(link.physicalOrderId),
+    code(link.source?.scenarioId) + ' / ' + show(link.node)
+  ]));
+}
+
+function caseRelationships(record) {
+  const data = state.relationships;
+  if (!data || data.scenarioId !== record.scenarioId) return '';
+  const heading = t('روابط تعهد و چالش در بانک آموزشی', 'Commitment and issue links in the training bank');
+  if (!data.challenge) {
+    return card(heading, '<p>' + t('این سناریو چالش ثبت‌شده‌ای در بانک آموزشی ندارد.',
+      'This scenario has no issue in the training bank.') + '</p>', 'data-case-relationships');
+  }
+  const links = data.links ?? [];
+  const commitments = [...new Set(links.map(link => link.commitmentId))];
+  const options = (data.options ?? []).map(option =>
+    button(show(option.code), 'data-open-scenario="' + esc(option.scenarioId) + '"')).join('');
+  const unresolved = (data.unresolved ?? []).length;
+  return card(heading,
+    '<p>' + t('چالش آموزشی', 'Training issue') + ' ' + code(data.challenge.id) + '</p>' +
+    '<div class="actions">' + options + '</div>' +
+    '<label>' + t('فیلتر تعهد', 'Filter by commitment') +
+    ' <select data-relationship-filter><option value="">' + t('همه تعهدهای مرتبط', 'All linked commitments') +
+    '</option>' + commitments.map(id => '<option value="' + esc(id) + '">' + esc(id) + '</option>').join('') +
+    '</select></label><div data-relationship-rows>' + relationshipRows(links) + '</div>' +
+    (unresolved ? '<p class="muted">' + t('اثرهای کمی‌سازی‌نشده', 'Unquantified effects') +
+      ' ' + show(unresolved) + '</p>' : ''),
+    'data-case-relationships');
+}
+
 function caseActions(record) {
   const choices = (record.allowedActions ?? []).filter(item => item.actor === actors[state.role]);
   if (!choices.length) {
     return '<p class="empty-state">' + t('اقدام مجاز برای این نقش نمایشی در وضعیت فعلی پرونده وجود ندارد. تغییر تب مجوز جدید ایجاد نمی‌کند.',
       'No permitted action exists for this simulated role in the current case state. Switching tabs does not grant new authority.') + '</p>';
   }
+  const canLearn = record.status === 'OBSERVED' && choices.some(item => item.action === 'CLOSE');
   const hasObserve = choices.some(item => item.action === 'OBSERVE');
   return '<form id="case-action" data-case-action><div class="form-row">' +
     '<label>' + t('دلیل اقدام (الزامی)','Action reason (required)') +
-    ' <input name="reason" type="text" required maxlength="240"></label>' +
-    (hasObserve ? '<label>' + t('تأییدکنندهٔ مستقل (اختیاری؛ هم‌نام با ثبت‌کننده رد می‌شود)','Independent verifier (optional; self-verification rejected)') +
-      ' <input name="verifier" type="text" maxlength="120" placeholder="REVIEWER"></label>' : '') +
+    ' <input name="reason" type="text" required maxlength="1000"></label>' +
+    (hasObserve ? '<label>' + t('برچسب بازبین آموزشی (اختیاری)','Training reviewer label (optional)') +
+      ' <input name="verifier" type="text" maxlength="160"></label>' : '') +
+    (canLearn ? '<label>' + t('درس‌آموخته (اختیاری)', 'Lesson (optional)') +
+      '<input name="lesson_text" maxlength="1000"></label><label>' +
+      t('شرط استفاده مجدد از درس', 'When this lesson applies') +
+      '<input name="lesson_applicability" maxlength="1000"></label>' : '') +
     '</div><div class="actions">' +
     choices.map(({action}) => '<button type="submit" class="primary" data-action="' + esc(action) + '">' + t(...actionNames[action]) + '</button>').join('') +
     '</div></form>';
@@ -471,6 +529,8 @@ function workspace() {
         'Roles are simulated in this training environment; switching UI tabs does not grant enterprise permissions. Approve/observe transitions are gated by the precomputed bank scenario’s gate/decision/outcome.') + '</p>') +
     lifecycleSeparationCard(detail, record) +
     context +
+    caseRelationships(record) +
+    caseLessons(record) +
     liveReservationPanel(detail, record) +
     card(t('گردش پرونده در این اجرا (ذخیره‌شده در SQLite فضای کاری)','Case history for this run (persisted in workspace SQLite)'), timeline(record.history ?? [])) +
     card(t('گردش از پیش محاسبه‌شده در بانک آموزشی (فقط‌خواندنی)','Precomputed training-bank history (read-only)'), timeline(detail.event ?? []));
@@ -565,13 +625,14 @@ async function load() {
   try {
     if (section === 'workspace') {
       const id = encodeURIComponent(scenario);
-      const [detail, record, execRes] = await Promise.all([
+      const [detail, record, execRes, relationships] = await Promise.all([
         api('scenarios/' + id),
         api('cases/' + id),
-        api('executive').catch(() => null)
+        api('executive').catch(() => null),
+        api('scenarios/' + id + '/relationships').catch(() => null)
       ]);
       if (request === loadCounter) {
-        Object.assign(state, { detail, cases: record });
+        Object.assign(state, { detail, cases: record, relationships });
         if (execRes) {
           state.executive = execRes.executive;
           state.executiveMeta = { sourceMode: execRes.sourceMode, operationalStatus: execRes.operationalStatus };
@@ -607,7 +668,16 @@ function serverNotice(error) {
     return t('نسخه پرونده تغییر کرده است (تعارض نسخه). وضعیت جدید بارگذاری شد.','The case revision changed (revision conflict). Current state reloaded.');
   }
   if (codeValue === 'self_verification_forbidden') {
-    return t('خودتأییدی مجاز نیست؛ تأییدکننده باید متمایز از ثبت‌کننده باشد.','Self-verification is forbidden; verifier must be distinct from the recorder.');
+    return t('برچسب بازبین آموزشی باید با نقش ثبت‌کننده متفاوت باشد.',
+      'The training reviewer label must differ from the recording role.');
+  }
+  if (codeValue === 'invalid_lesson') {
+    return t('متن درس‌آموخته و شرط استفاده مجدد را بررسی کنید.',
+      'Check the lesson text and when it applies.');
+  }
+  if (codeValue === 'lesson_requires_observation') {
+    return t('برای ثبت درس‌آموخته ابتدا نتیجه را در همین پرونده ثبت کنید.',
+      'Record an observation in this case before saving a lesson.');
   }
   if (codeValue === 'approval_required') {
     return t('رزرو ظرفیت بدون مصوبهٔ صریح و نسخه‌دار ممکن نیست.','Capacity reservation requires an explicit versioned approval.');
@@ -657,6 +727,11 @@ document.addEventListener('click', event => {
     load();
   }
 });
+document.addEventListener('change', event => {
+  if (!event.target.matches('[data-relationship-filter]')) return;
+  const rows = $('[data-relationship-rows]');
+  if (rows) rows.innerHTML = relationshipRows(state.relationships?.links ?? [], event.target.value);
+});
 document.addEventListener('submit', async event => {
   const form = event.target;
   if (form.id === 'filters') {
@@ -674,11 +749,21 @@ document.addEventListener('submit', async event => {
     const actor = actors[state.role];
     const scenario = state.scenario;
     if (!reason || !state.cases.allowedActions?.some(item => item.actor === actor && item.action === action)) return;
+    const lessonText = formData.get('lesson_text')?.trim();
+    const applicability = formData.get('lesson_applicability')?.trim();
+    if (Boolean(lessonText) !== Boolean(applicability)) {
+      const input = form.elements.namedItem(lessonText ? 'lesson_applicability' : 'lesson_text');
+      input.setCustomValidity(t('برای ثبت درس هر دو قسمت را تکمیل کنید.', 'Complete both fields to record a lesson.'));
+      input.reportValidity();
+      input.setCustomValidity('');
+      return;
+    }
     state.saving = true;
     form.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
     try {
       const payload = { revision: state.cases.revision, action, actor, reason };
       if (verifier) payload.verifier = verifier;
+      if (lessonText && applicability) payload.lesson = { text: lessonText, applicability };
       const record = await api('cases/' + encodeURIComponent(scenario) + '/actions', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)

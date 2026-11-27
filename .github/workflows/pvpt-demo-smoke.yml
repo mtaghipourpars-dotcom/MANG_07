@@ -2,7 +2,7 @@ name: PVPT Demo Browser Smoke Tests
 
 on:
   push:
-    branches: [main, demo/total-system]
+    branches: [main, demo/total-system, demo/localhost-release]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -29,6 +29,10 @@ jobs:
         run: npm run validate:skills
       - name: Validate the implementation contract
         run: node DEV/validate-spec.mjs
+      - name: Validate the localhost contract registry
+        run: node scripts/validate-local-contract.mjs
+      - name: Verify Node analytical units
+        run: node --test unit/*.test.mjs
       - name: Rebuild and verify the scenario bank
         run: |
           mkdir -p test-results

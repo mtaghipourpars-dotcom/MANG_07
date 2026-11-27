@@ -14,7 +14,8 @@
     "lint": "node scripts/validate-agent-skills.mjs",
     "test": "npm run validate:skills && playwright test",
     "test:demo": "playwright test",
-    "validate:skills": "node scripts/validate-agent-skills.mjs"
+    "validate:skills": "node scripts/validate-agent-skills.mjs",
+    "localhost": "node scripts/localhost.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"

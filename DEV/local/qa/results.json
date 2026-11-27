@@ -1,0 +1,37 @@
+{
+  "scope": "localhost-training-demo",
+  "baseCommit": "a7b6a8a2a2e30b26e7096c60212c58286242bdd5",
+  "runtimeSourceFingerprint": "867462ea213a41483b9fbb4255bc63b13e367ef1b6d34f30121b099fd6688fc4",
+  "versions": {
+    "node": "24.22.3",
+    "python": "3.12.14",
+    "playwright": "1.65.1",
+    "chromium": "153.0.8010.0"
+  },
+  "commands": {
+    "fullVerification": "python DEV/local/qa/verify.py",
+    "localhost": "npm run localhost"
+  },
+  "checkExitCodes": {
+    "contract": 0,
+    "localhost-contract": 0,
+    "python-unit": 0,
+    "node-unit": 0,
+    "bank": 0,
+    "browser": 0,
+    "localhost": 0
+  },
+  "browser": {
+    "startTime": "2026-11-27T06:19:51.682Z",
+    "duration": 56447.255,
+    "expected": 92,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "nodePassed": 10,
+  "pythonPassed": 5,
+  "scenarios": 43200,
+  "restoredCaseRevision": 1,
+  "humanUAT": "NOT_RUN"
+}

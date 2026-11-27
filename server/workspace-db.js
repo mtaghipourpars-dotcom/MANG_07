@@ -30,7 +30,7 @@ function transaction(db, run) {
 function migrate(db) {
   transaction(db, () => {
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 3) throw new Error('The PVPT database schema is newer than this application.');
+    if (version > 4) throw new Error('The PVPT database schema is newer than this application.');
     if (version === 0) db.exec(`
       CREATE TABLE workspaces (
         id TEXT PRIMARY KEY,
@@ -165,6 +165,25 @@ function migrate(db) {
       ) STRICT;
 
       PRAGMA user_version = 3;
+    `);
+    if (version < 4) db.exec(`
+      CREATE TABLE total_demo_lessons (
+        workspace_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        close_revision INTEGER NOT NULL,
+        observation_revision INTEGER NOT NULL,
+        decision_revision INTEGER NOT NULL,
+        text TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000),
+        applicability TEXT NOT NULL CHECK(length(trim(applicability)) BETWEEN 1 AND 1000),
+        PRIMARY KEY(workspace_id, scenario_id, close_revision),
+        FOREIGN KEY(workspace_id, scenario_id, close_revision)
+          REFERENCES total_demo_actions(workspace_id, scenario_id, revision),
+        FOREIGN KEY(workspace_id, scenario_id, observation_revision)
+          REFERENCES total_demo_observations(workspace_id, scenario_id, revision),
+        FOREIGN KEY(workspace_id, scenario_id, decision_revision)
+          REFERENCES total_demo_approvals(workspace_id, scenario_id, decision_revision)
+      ) STRICT;
+      PRAGMA user_version = 4;
     `);
   });
 }
@@ -380,6 +399,15 @@ export function openWorkspaceDb(filename, seeds) {
     WHERE workspace_id = ? AND scenario_id = ?
     ORDER BY revision
   `);
+  const addLesson = db.prepare(`
+    INSERT INTO total_demo_lessons VALUES(?,?,?,?,?,?,?)
+  `);
+  const readLessons = db.prepare(`
+    SELECT scenario_id AS scenarioId, close_revision AS closeRevision,
+           observation_revision AS observationRevision, decision_revision AS decisionRevision,
+           text, applicability FROM total_demo_lessons
+    WHERE workspace_id = ? AND scenario_id = ? ORDER BY close_revision
+  `);
   const addObservation = db.prepare(`
     INSERT INTO total_demo_observations (workspace_id, scenario_id, revision, decision_revision, actor, verifier, outcome, observed_effects, reason, at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -491,12 +519,16 @@ export function openWorkspaceDb(filename, seeds) {
         at: row.at,
       };
     },
+    readTotalDemoLessons(workspace, scenario) {
+      return readLessons.all(workspace, scenario);
+    },
     readTotalDemoObservations(workspace, scenario) {
       return readObservations.all(workspace, scenario).map(row => ({
         revision: row.revision,
         decisionRevision: row.decision_revision,
         actor: row.actor,
         verifier: row.verifier,
+        verificationStatus: 'INTERNAL_SOURCE_REQUIRED',
         outcome: row.outcome,
         effects: JSON.parse(row.observed_effects),
         reason: row.reason,
@@ -520,6 +552,12 @@ export function openWorkspaceDb(filename, seeds) {
         if (latest && latest.source !== record.source) return { error: 'scenario_source_changed' };
         const stamp = new Date().toISOString();
         const nextRevision = revision + 1;
+        const observation = record.lesson && readObservations.all(workspace, scenario).at(-1);
+        if (record.lesson && (record.action !== 'CLOSE' || !observation)) {
+          return { error: 'lesson_requires_observation' };
+        }
+        const approval = record.action === 'OBSERVE' && readApproval.get(workspace, scenario);
+        if (record.action === 'OBSERVE' && !approval) return { error: 'approval_required' };
         addAction.run(workspace, scenario, nextRevision, record.source, record.action, record.actor,
           record.status, record.reason, stamp);
         if (record.action === 'APPROVE' && record.approvedEffects) {
@@ -527,12 +565,12 @@ export function openWorkspaceDb(filename, seeds) {
             record.optionCode || '', record.reason, JSON.stringify(record.approvedEffects), stamp);
         }
         if (record.action === 'OBSERVE' && record.observedEffects) {
-          const approval = readApproval.get(workspace, scenario);
-          if (!approval) return { error: 'approval_required' };
           addObservation.run(workspace, scenario, nextRevision, approval.decision_revision,
             record.actor, record.verifier ?? null, record.outcome || 'PENDING',
             JSON.stringify(record.observedEffects), record.reason, stamp);
         }
+        if (record.lesson) addLesson.run(workspace, scenario, nextRevision, observation.revision,
+          observation.decision_revision, record.lesson.text, record.lesson.applicability);
         return { revision: nextRevision };
       });
     },
