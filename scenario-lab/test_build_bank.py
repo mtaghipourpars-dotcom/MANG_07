@@ -22,7 +22,7 @@ class BankReleaseTest(TestCase):
                 self.assertEqual(views['summary'], summary)
                 for table, metric in [('scenario', 'scenarios'), ('effect', 'effects'), ('event', 'events')]:
                     self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone(), (summary[metric],))
-                self.assertEqual(views['executive'], json.loads((self.evidence / 'executive.json').read_text()))
+                self.assertEqual(views['executive'], json.loads((self.evidence / 'executive.json').read_text(encoding='utf-8')))
                 self.assertEqual(views['release']['data_class'], 'DEMO_SYNTHETIC')
             with self.assertRaises(FileExistsError):
                 build_bank(bank, self.evidence)
@@ -30,8 +30,8 @@ class BankReleaseTest(TestCase):
     def test_evidence_mismatch_does_not_publish_a_bank(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'summary.json').write_text('{}')
-            (root / 'executive.json').write_text('{}')
+            (root / 'summary.json').write_text('{}', encoding='utf-8')
+            (root / 'executive.json').write_text('{}', encoding='utf-8')
             bank = root / 'bank.sqlite'
             with self.assertRaisesRegex(ValueError, 'reviewed summary'):
                 build_bank(bank, root)
