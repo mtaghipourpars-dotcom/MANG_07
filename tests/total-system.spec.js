@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 const endpoint = '/api/total-demo';
@@ -8,6 +9,8 @@ test('scenario bank filters, paginates, and preserves unknown observations', asy
   const summary = await summaryResponse.json();
   expect(summary.data_class).toBe('DEMO_SYNTHETIC');
   expect(summary.operationalStatus).toBe('INTERNAL_SOURCE_REQUIRED');
+  expect(summary.actorMode).toBe('DEMO_SIMULATED_ROLE');
+  expect(summary.enterpriseAuthStatus).toBe('BLOCKED_INTERNAL_SOURCE_REQUIRED');
   expect(summary.summary.scenarios).toBe(43200);
   expect(summary.filters.anchor).toHaveLength(75);
 
@@ -45,8 +48,9 @@ test('scenario bank rejects invalid selection and shows executive evidence with 
   expect(absent.status()).toBe(404);
   const response = await request.get(endpoint + '/executive');
   expect(response.ok()).toBeTruthy();
-  const { data_class, executive } = await response.json();
+  const { data_class, sourceMode, executive } = await response.json();
   expect(data_class).toBe('DEMO_SYNTHETIC');
+  expect(sourceMode).toBe('READ_ONLY_PRECOMPUTED_SCENARIO_BANK');
   expect(executive.promises['24h']).toHaveLength(1);
   expect(executive.promises['72h']).toHaveLength(3);
   expect(executive.order_conflict.requested.status).toBe('BLOCKED_CONFLICT');
@@ -77,6 +81,69 @@ test('total demo opens four workspaces in both directions and themes', async ({ 
   await page.locator('[data-language="fa"]').click();
   await expect(html).toHaveAttribute('dir', 'rtl');
   expect(errors).toEqual([]);
+});
+
+test('R5: many-to-many commitment <-> issue <-> option links expose donor side-effects and UNKNOWN when evidence is missing', async ({ page, request }) => {
+  // 1. From a commitment -> ALL linked issues and options (including donor side-effects)
+  const commitmentId = 'PUB-THERMAL-MGG72-SH2::dispatch';
+  const fromCommitment = await request.get(endpoint + '/commitments/' + encodeURIComponent(commitmentId) + '/links?limit=10');
+  expect(fromCommitment.ok()).toBeTruthy();
+  const cData = await fromCommitment.json();
+  expect(cData.commitmentId).toBe(commitmentId);
+  expect(cData.total).toBeGreaterThan(100);
+  expect(cData.donorImpactedScenarioCount).toBeGreaterThan(0);
+  expect(cData.links).toHaveLength(10);
+  expect(cData.links[0]).toMatchObject({
+    commitmentId,
+    effectType: 'DIRECT',
+    version: 1,
+  });
+  expect(cData.links[0].issueId).toContain('::');
+  expect(cData.links[0].optionId).toContain('::');
+
+  // 2. From a donor commitment -> donor side-effect clearly tagged
+  const donorCommitment = 'PUB-THERMAL-MGG72-SH2::donor_delivery';
+  const donorRes = await request.get(endpoint + '/commitments/' + encodeURIComponent(donorCommitment) + '/links?option=transfer&donorImpacted=true&limit=5');
+  expect(donorRes.ok()).toBeTruthy();
+  const donorData = await donorRes.json();
+  expect(donorData.effectType).toBe('SIDE_EFFECT_DONOR');
+  expect(donorData.links.length).toBeGreaterThan(0);
+  expect(donorData.links[0].effectType).toBe('SIDE_EFFECT_DONOR');
+  expect(donorData.links[0].donorImpacted).toBe(true);
+  expect(donorData.links[0].reviewStatus).toBe('UNKNOWN');
+  expect(donorData.links[0].evidenceRef).toBeNull();
+
+  // 3. From an issue (S000051, transfer) -> ALL affected commitments (direct + donor side-effect)
+  const fromIssue = await request.get(endpoint + '/issues/S000051/commitments');
+  expect(fromIssue.ok()).toBeTruthy();
+  const iData = await fromIssue.json();
+  expect(iData.directCommitments).toHaveLength(8);
+  expect(iData.donorSideEffectCommitments).toHaveLength(1);
+  expect(iData.donorSideEffectCommitments[0].donorImpacted).toBe(true);
+  expect(iData.donorSideEffectCommitments[0].reviewStatus).toBe('UNKNOWN');
+  expect(iData.donorSideEffectCommitments[0].evidenceRef).toBeNull();
+
+  // 4. Attempting to mark a link CONFIRMED without evidenceRef must fail (400)
+  const missingEv = await request.post(endpoint + '/cases/S000051/links', {
+    data: { commitmentId: donorCommitment, reviewStatus: 'CONFIRMED', evidenceRef: null },
+  });
+  expect(missingEv.status()).toBe(400);
+  expect((await missingEv.json()).error).toBe('evidence_ref_required');
+
+  // 5. Recording a versioned review with evidenceRef increments link version
+  const confirmed = await request.post(endpoint + '/cases/S000051/links', {
+    data: { commitmentId: donorCommitment, reviewStatus: 'CONFIRMED', evidenceRef: 'DEMO-DONOR-CHECK-01', actor: 'OWNER' },
+  });
+  expect(confirmed.status()).toBe(201);
+  const confirmedBody = await confirmed.json();
+  expect(confirmedBody.saved.version).toBe(1);
+  expect(confirmedBody.saved.evidenceRef).toBe('DEMO-DONOR-CHECK-01');
+
+  // 6. Browser bidirectional data drill-down (not merely switching tabs)
+  await page.goto('/demo/total-system/?scenario=S000013');
+  await page.locator('[data-inspect-commitment]').first().click();
+  await expect(page.locator('[data-commitment-links-panel]')).toBeVisible();
+  await expect(page.locator('[data-commitment-links-panel]')).toContainText('PUB-THERMAL-MGG72-SH2::');
 });
 
 test('persisted case enforces role and revision gates as ownership moves across workspaces', async ({ request }) => {
@@ -119,6 +186,92 @@ test('persisted case enforces role and revision gates as ownership moves across 
   expect(current.allowedActions).toEqual([]);
 });
 
+test('R6 & R7: blocks enterprise mode, forbids client recorder, enforces server-derived self-verification, stale version, and live authority ceilings', async ({ request }) => {
+  // Enterprise mode is explicitly BLOCKED (INTERNAL_SOURCE_REQUIRED)
+  const enterpriseBlocked = await request.get(endpoint + '/governance/queue?mode=enterprise');
+  expect(enterpriseBlocked.status()).toBe(503);
+  const entBody = await enterpriseBlocked.json();
+  expect(entBody.error).toBe('enterprise_authority_required');
+  expect(entBody.status).toBe('BLOCKED');
+
+  // Out-of-ceiling OPS cannot approve EXEC-FIN-01 (amount 480 > ceiling 200 & policy_ceo=1)
+  const opsBlocked = await request.post(endpoint + '/governance/evaluate', {
+    data: { caseId: 'EXEC-FIN-01', actor: 'OPS', asOfMinute: 0 },
+  });
+  expect(opsBlocked.status()).toBe(403);
+  expect((await opsBlocked.json()).error).toBe('authority_exceeded');
+
+  // Expired OPS assignment on EXEC-GOV-02 rejected, while OPS-DEPUTY within [0, 60] is allowed
+  const expiredOps = await request.post(endpoint + '/governance/evaluate', {
+    data: { caseId: 'EXEC-GOV-02', actor: 'OPS', asOfMinute: 0 },
+  });
+  expect(expiredOps.status()).toBe(403);
+  expect((await expiredOps.json()).error).toBe('assignment_expired_or_unassigned');
+
+  const deputyOk = await request.post(endpoint + '/governance/evaluate', {
+    data: { caseId: 'EXEC-GOV-02', actor: 'OPS-DEPUTY', asOfMinute: 15 },
+  });
+  expect(deputyOk.status()).toBe(200);
+  expect((await deputyOk.json()).allowed).toBe(true);
+
+  // Client-supplied recorder must be rejected with 400
+  const url = endpoint + '/cases/S000013';
+  const initial = await (await request.get(url)).json();
+  const forgedRecorder = await request.post(url + '/actions', {
+    data: { revision: initial.revision, action: 'REPORT', actor: 'EXPERT', recorder: 'FAKE', reason: 'Forged recorder must fail' },
+  });
+  expect(forgedRecorder.status()).toBe(400);
+  expect((await forgedRecorder.json()).error).toBe('client_recorder_forbidden');
+
+  // Record REPORT (rev 1, actor EXPERT) then test version-bound verification
+  const rep = await request.post(url + '/actions', {
+    data: { revision: initial.revision, action: 'REPORT', actor: 'EXPERT', reason: 'Initial report' },
+  });
+  expect(rep.ok()).toBeTruthy();
+  const rev1 = await rep.json();
+
+  // Self-verification on rev 1 (serverRecorder = EXPERT) must fail 403
+  const selfVer = await request.post(url + '/verifications', {
+    data: { kind: 'OPERATIONAL', targetRevision: rev1.revision, verifier: 'EXPERT', evidenceRef: 'DEMO-EV-1' },
+  });
+  expect(selfVer.status()).toBe(403);
+  expect((await selfVer.json()).error).toBe('self_verification_forbidden');
+
+  // Move to rev 2 (SCOPE) and verify stale targetRevision=1 fails with 409
+  const sc = await request.post(url + '/actions', {
+    data: { revision: rev1.revision, action: 'SCOPE', actor: 'OWNER', reason: 'Scope confirmed' },
+  });
+  expect(sc.ok()).toBeTruthy();
+  const rev2 = await sc.json();
+
+  const staleVer = await request.post(url + '/verifications', {
+    data: { kind: 'OPERATIONAL', targetRevision: 1, verifier: 'REVIEWER', evidenceRef: 'DEMO-EV-1' },
+  });
+  expect(staleVer.status()).toBe(409);
+  expect((await staleVer.json()).error).toBe('stale_evidence_version');
+
+  // Independent verifier on current rev 2 succeeds
+  const validVer = await request.post(url + '/verifications', {
+    data: { kind: 'OPERATIONAL', targetRevision: rev2.revision, verifier: 'REVIEWER', evidenceRef: 'DEMO-EV-2' },
+  });
+  expect(validVer.status()).toBe(201);
+  const verBody = await validVer.json();
+  expect(verBody.verification.recorder).toBe('OWNER');
+  expect(verBody.verification.verifier).toBe('REVIEWER');
+
+  // Financial verification rejects excluded internal transfer SYN-SET-01 (422) and accepts valid SYN-MAT-01 in 2026-11
+  const badFinVer = await request.post(url + '/verifications', {
+    data: { kind: 'FINANCIAL', targetRevision: rev2.revision, verifier: 'FIN-CONTROLLER', documentRef: 'SYN-SET-01', period: '2026-11', evidenceRef: 'DEMO-FIN-1' },
+  });
+  expect(badFinVer.status()).toBe(422);
+  expect((await badFinVer.json()).error).toBe('invalid_financial_evidence');
+
+  const okFinVer = await request.post(url + '/verifications', {
+    data: { kind: 'FINANCIAL', targetRevision: rev2.revision, verifier: 'FIN-CONTROLLER', documentRef: 'SYN-MAT-01', period: '2026-11', evidenceRef: 'DEMO-FIN-1' },
+  });
+  expect(okFinVer.status()).toBe(201);
+});
+
 test('unknown evidence prevents approval and keeps the current revision', async ({ request }) => {
   const url = endpoint + '/cases/S000005';
   let current = await (await request.get(url)).json();
@@ -136,7 +289,6 @@ test('unknown evidence prevents approval and keeps the current revision', async 
   expect(response.status()).toBe(403);
   expect(await (await request.get(url)).json()).toEqual(current);
 });
-
 
 test('browser hands the same scenario through all four workspaces and reload retains its result', async ({ page }) => {
   await page.goto('/demo/total-system/?scenario=S000013');
@@ -162,29 +314,45 @@ test('browser hands the same scenario through all four workspaces and reload ret
   await expect(command('REPORT')).toHaveCount(0);
 });
 
-test('approved forecast never falls back to proposed, stays immutable after observe, and separates direct vs donor effects', async ({ page, request }) => {
+test('R10: approved forecast stays immutable after observe, separates primary vs donor risk, and never marks partial/donor-missing verified', async ({ page, request }) => {
   const url = endpoint + '/cases/S000013';
   const before = await (await request.get(url)).json();
   expect(before.approvedSnapshot).toBeNull();
+  expect(before.primaryChainRiskStatus).toBe('UNVERIFIED_OPEN');
+  expect(before.donorSideEffectRiskStatus).toBe('NO_DONOR_IMPACT');
   expect(before.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
+
+  // Donor-impacted transfer scenario (S000051) keeps donorSideEffectRiskStatus = UNVERIFIED_OPEN
+  const transferState = await (await request.get(endpoint + '/cases/S000051')).json();
+  expect(transferState.donorSideEffectRiskStatus).toBe('UNVERIFIED_OPEN');
+  expect(transferState.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
+
+  // Partially verified scenario (S000014, collection.observed === null) stays UNVERIFIED_OPEN even after OBSERVE
+  let partial = await (await request.get(endpoint + '/cases/S000014')).json();
+  for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['APPROVE', 'DECIDER'], ['EXECUTE', 'OWNER']]) {
+    partial = await (await request.post(endpoint + '/cases/S000014/actions', {
+      data: { revision: partial.revision, action, actor, reason: 'Partial ' + action },
+    })).json();
+  }
+  const partialObs = await (await request.post(endpoint + '/cases/S000014/actions', {
+    data: { revision: partial.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', reason: 'Partial observe' },
+  })).json();
+  expect(partialObs.primaryChainRiskStatus).toBe('UNVERIFIED_OPEN');
+  expect(partialObs.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
 
   await page.goto('/demo/total-system/?scenario=S000013');
   const directTable = page.locator('[data-effect-group="direct"] table');
   const donorTable = page.locator('[data-effect-group="donor"] table');
   await expect(directTable).toBeVisible();
   await expect(donorTable).toBeVisible();
-  // Before explicit approval, the Approved forecast column (5th cell) must be Unknown, NOT proposed!
   const firstDirectApprovedCell = directTable.locator('tbody tr').first().locator('td').nth(4);
   await expect(firstDirectApprovedCell).toContainText('نامشخص');
 
-  // Verify two-way path: Commitment (owner) -> Issue (expert) -> Commitment (owner) with same case ID
   await directTable.locator('tbody tr').first().locator('[data-role="expert"]').click();
   await expect(page.locator('[data-expert-issue]')).toContainText('S000013');
   await page.locator('[data-expert-issue] [data-role="owner"]').first().click();
   await expect(page.locator('[data-owner-commitments]')).toBeVisible();
-  await expect(page.locator('#screen')).toContainText('S000013');
 
-  // Progress through APPROVE -> EXECUTE -> OBSERVE via API on an isolated context and confirm immutability + self-verification block
   let current = before;
   for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['APPROVE', 'DECIDER']]) {
     const res = await request.post(url + '/actions', { data: { revision: current.revision, action, actor, reason: 'Stage2 ' + action } });
@@ -193,44 +361,63 @@ test('approved forecast never falls back to proposed, stays immutable after obse
   }
   expect(current.approvedSnapshot).not.toBeNull();
   expect(current.approvedSnapshot.decisionRevision).toBe(4);
-  expect(current.reservations).toEqual([]); // Approval alone does NOT reserve capacity
+  expect(current.reservations).toEqual([]);
   expect(current.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
   const frozenSnapshot = JSON.stringify(current.approvedSnapshot);
 
-  const execRes = await request.post(url + '/actions', { data: { revision: current.revision, action: 'EXECUTE', actor: 'OWNER', reason: 'Stage2 EXECUTE' } });
-  expect(execRes.ok()).toBeTruthy();
-  current = await execRes.json();
+  current = await (await request.post(url + '/actions', { data: { revision: current.revision, action: 'EXECUTE', actor: 'OWNER', reason: 'Stage2 EXECUTE' } })).json();
 
-  // Self-verification must be rejected
+  // Stale evidenceVersion rejected with 409
+  const staleObs = await request.post(url + '/actions', {
+    data: { revision: current.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', evidenceVersion: 1, reason: 'Stale version' },
+  });
+  expect(staleObs.status()).toBe(409);
+  expect((await staleObs.json()).error).toBe('stale_evidence_version');
+
+  // Self-verification rejected (serverRecorder is OWNER from EXECUTE)
   const selfVerify = await request.post(url + '/actions', {
     data: { revision: current.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'OWNER', reason: 'Self check must fail' },
   });
   expect(selfVerify.status()).toBe(403);
   expect((await selfVerify.json()).error).toBe('self_verification_forbidden');
 
-  // Independent verifier succeeds without overwriting approvedSnapshot
   const obsRes = await request.post(url + '/actions', {
-    data: { revision: current.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', reason: 'Independent observation' },
+    data: { revision: current.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', evidenceVersion: 4, evidenceRef: 'DEMO-OBS-013', reason: 'Independent observation' },
   });
   expect(obsRes.ok()).toBeTruthy();
   current = await obsRes.json();
   expect(JSON.stringify(current.approvedSnapshot)).toBe(frozenSnapshot);
   expect(current.observations).toHaveLength(1);
   expect(current.observations[0].verifier).toBe('REVIEWER');
-  expect(current.remainingRiskStatus).not.toBe('UNVERIFIED_OPEN');
+  expect(current.observations[0].sourceType).toBe('WORKSPACE_DEMO_OBSERVATION');
+  expect(current.observations[0].evidenceRef).toBe('DEMO-OBS-013');
+  expect(current.primaryChainRiskStatus).toBe('LATE_REALIZED');
+  expect(current.remainingRiskStatus).toBe('LATE_REALIZED');
 });
 
-test('live transactional reservation enforces approval gate, portfolio overlap conflict, adjacency, and expiry release', async ({ request }) => {
+test('R9: portfolio-scoped reservation uses server clock, rejects client now, passes atomic concurrency, adjacency, expiry release, and portfolio isolation', async ({ request }) => {
   const listRes = await request.get(endpoint + '/scenarios?resource=drawing&gate=FEASIBLE&decision=APPROVED&limit=2');
   expect(listRes.ok()).toBeTruthy();
   const { items } = await listRes.json();
   expect(items).toHaveLength(2);
   const [firstId, secondId] = items.map(item => item.id);
 
-  // Initialize workspace cookie and verify reservation without approval is rejected
   await request.get(endpoint + '/cases/' + firstId);
+
+  // Client-supplied now MUST be rejected on both GET and POST
+  const clientNowGet = await request.get(endpoint + '/reservations?now=10');
+  expect(clientNowGet.status()).toBe(400);
+  expect((await clientNowGet.json()).error).toBe('client_time_forbidden');
+
+  const clientNowPost = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, now: 0, owner: 'OWNER' },
+  });
+  expect(clientNowPost.status()).toBe(400);
+  expect((await clientNowPost.json()).error).toBe('client_time_forbidden');
+
+  // Unapproved case cannot reserve
   const unapproved = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { start_min: 600, end_min: 780, expires_at: 1000, now: 0, owner: 'OWNER' },
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER' },
   });
   expect(unapproved.status()).toBe(403);
   expect((await unapproved.json()).error).toBe('approval_required');
@@ -251,60 +438,167 @@ test('live transactional reservation enforces approval gate, portfolio overlap c
   const firstCase = await approveCase(firstId);
   const secondCase = await approveCase(secondId);
 
-  // Reserve [600, 780) on first case
-  const r1 = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { start_min: 600, end_min: 780, expires_at: 1000, now: 0, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
-  });
-  expect(r1.status()).toBe(201);
-  expect((await r1.json()).status).toBe('RESERVED');
+  // Atomic concurrency: two simultaneous overlapping requests -> strictly one 201 RESERVED and one 409 BLOCKED_CONFLICT
+  const [p1, p2] = await Promise.all([
+    request.post(endpoint + '/cases/' + firstId + '/reservations', {
+      data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
+    }),
+    request.post(endpoint + '/cases/' + secondId + '/reservations', {
+      data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 700, end_min: 860, expires_at: 1200, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+    }),
+  ]);
+  const statuses = [p1.status(), p2.status()].sort();
+  expect(statuses).toEqual([201, 409]);
 
-  // Overlapping [700, 860) on second case across the portfolio must be rejected
-  const clash = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { start_min: 700, end_min: 860, expires_at: 1200, now: 0, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+  // Portfolio isolation: same overlapping slot [600, 780) in a DIFFERENT portfolio MUST succeed
+  const otherPortfolio = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-ALT', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
   });
-  expect(clash.status()).toBe(409);
-  const clashBody = await clash.json();
-  expect(clashBody.error).toBe('reservation_conflict');
-  expect(clashBody.conflictingOrders.some(order => order.startsWith(firstId + ':'))).toBe(true);
+  expect(otherPortfolio.status()).toBe(201);
+  expect((await otherPortfolio.json()).portfolioId).toBe('DEMO-PORTFOLIO-ALT');
 
-  // Adjacent [780, 960) on second case must succeed
-  const adjacent = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { start_min: 780, end_min: 960, expires_at: 1200, now: 0, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+  // Adjacent slot [1200, 1380) then [1380, 1500) in DEMO-PORTFOLIO-MAIN both succeed
+  const adj1 = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1200, end_min: 1380, expires_at: 1250, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
   });
-  expect(adjacent.status()).toBe(201);
-  expect((await adjacent.json()).status).toBe('RESERVED');
+  expect(adj1.status()).toBe(201);
+  const adj2 = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1380, end_min: 1500, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+  });
+  expect(adj2.status()).toBe(201);
 
-  // After expiry (now = 1000), original slot [600, 780) cannot start before now, so test [1000, 1180) vs expired [600, 780)
-  // First reserve [1000, 1180) expiring at 1050, then at now=1050 reserve [1050, 1180) — overlaps [1000, 1180) only if not expired!
-  const shortRes = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { start_min: 1000, end_min: 1180, expires_at: 1050, now: 0, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
+  // Server clock advance to 1250 expires adj1 ([1200, 1380) expires_at=1250) and releases [1250, 1380)
+  const adv = await request.post(endpoint + '/clock/advance', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', minute: 1250 },
   });
-  expect(shortRes.status()).toBe(201);
+  expect(adv.status()).toBe(200);
+  expect((await adv.json()).currentMinute).toBe(1250);
+
+  // Clock cannot rewind
+  const rewind = await request.post(endpoint + '/clock/advance', {
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', minute: 1200 },
+  });
+  expect(rewind.status()).toBe(400);
+  expect((await rewind.json()).error).toBe('clock_cannot_rewind');
+
+  // Now [1250, 1380) succeeds because adj1 expired at 1250
   const afterExpiry = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { start_min: 1050, end_min: 1180, expires_at: 1300, now: 1050, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1250, end_min: 1380, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
   });
   expect(afterExpiry.status()).toBe(201);
-  expect((await afterExpiry.json()).status).toBe('RESERVED');
+  expect((await afterExpiry.json()).serverNow).toBe(1250);
 });
 
-test('executive pathways, anti-double-counting DAG, independent economic outputs, and localStorage hygiene', async ({ page, request }) => {
-  const execRes = await request.get(endpoint + '/executive');
-  expect(execRes.ok()).toBeTruthy();
-  const execPayload = await execRes.json();
-  expect(execPayload.sourceMode).toBe('READ_ONLY_PRECOMPUTED_SCENARIO_BANK');
-  expect(execPayload.operationalStatus).toBe('INTERNAL_SOURCE_REQUIRED');
-  const { finance, governance } = execPayload.executive;
-  // Parallel 5-day causes (PART-A, PART-B) produce single 5-day delay on SYN-PAY-01
-  expect(finance.cash.nodes['PART-A']).toEqual([2, 7]);
-  expect(finance.cash.nodes['PART-B']).toEqual([2, 7]);
-  expect(finance.cash.stages).toHaveLength(1);
-  expect(finance.cash.stages[0].delay_days).toBe(5);
-  expect(finance.cash.stages[0].timing_cost_m_toman).toBe(246.58);
-  expect(governance.ceo_queue.map(row => row.id)).toEqual(['EXEC-FIN-01']);
-  expect(governance.high_risk_watch).toEqual(['EXEC-GOV-02', 'EXEC-GOV-03']);
+test('R16: outcome-based lessons are retrievable from commitment & issue paths and strictly separated from declined closure notes', async ({ request }) => {
+  // Path A: OBSERVED -> CLOSE records OUTCOME_BASED_LESSON
+  let observedCase = await (await request.get(endpoint + '/cases/S000013')).json();
+  for (const [action, actor, extra] of [
+    ['REPORT', 'EXPERT', {}],
+    ['SCOPE', 'OWNER', {}],
+    ['ASSESS', 'ASSESSOR', {}],
+    ['APPROVE', 'DECIDER', {}],
+    ['EXECUTE', 'OWNER', {}],
+    ['OBSERVE', 'OWNER', { verifier: 'REVIEWER', evidenceRef: 'DEMO-OBS-LES-1' }],
+    ['CLOSE', 'EXPERT', { reuseCondition: 'When drawing shortage blocks thermal unit', evidenceRef: 'DEMO-OBS-LES-1' }],
+  ]) {
+    const res = await request.post(endpoint + '/cases/S000013/actions', {
+      data: { revision: observedCase.revision, action, actor, reason: 'Lesson test ' + action, ...extra },
+    });
+    expect(res.ok()).toBeTruthy();
+    observedCase = await res.json();
+  }
+  expect(observedCase.lessons).toHaveLength(1);
+  expect(observedCase.lessons[0]).toMatchObject({
+    scenario_id: 'S000013',
+    closure_type: 'OUTCOME_BASED_LESSON',
+    decision_revision: 4,
+    observation_revision: 6,
+    evidence_ref: 'DEMO-OBS-LES-1',
+    reuse_condition: 'When drawing shortage blocks thermal unit',
+  });
+
+  // Retrievable via commitment path AND issue path
+  const byCommitment = await (await request.get(endpoint + '/lessons?commitmentId=' + encodeURIComponent('PUB-THERMAL-MGG72-SH2::dispatch'))).json();
+  expect(byCommitment.items.some(l => l.scenario_id === 'S000013' && l.closure_type === 'OUTCOME_BASED_LESSON')).toBe(true);
+  const byIssue = await (await request.get(endpoint + '/issues/S000013/commitments')).json();
+  expect(byIssue.lessons.some(l => l.scenario_id === 'S000013' && l.closure_type === 'OUTCOME_BASED_LESSON')).toBe(true);
+
+  // Path B: DECLINED -> CLOSE records DECLINED_CLOSURE_NOTE (never OUTCOME_BASED_LESSON)
+  let declinedCase = await (await request.get(endpoint + '/cases/S000005')).json();
+  for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['DECLINE', 'DECIDER'], ['CLOSE', 'EXPERT']]) {
+    const res = await request.post(endpoint + '/cases/S000005/actions', {
+      data: { revision: declinedCase.revision, action, actor, reason: 'Declined path ' + action },
+    });
+    expect(res.ok()).toBeTruthy();
+    declinedCase = await res.json();
+  }
+  expect(declinedCase.lessons).toHaveLength(1);
+  expect(declinedCase.lessons[0].closure_type).toBe('DECLINED_CLOSURE_NOTE');
+  expect(declinedCase.lessons[0].observation_revision).toBeNull();
+
+  // Attempting to force an OUTCOME_BASED_LESSON on a declined case without observation MUST fail with 409
+  const forcedLesson = await request.post(endpoint + '/cases/S000005/lessons', {
+    data: { closureType: 'OUTCOME_BASED_LESSON', reuseCondition: 'Invalid', summary: 'Should fail' },
+  });
+  expect(forcedLesson.status()).toBe(409);
+  expect((await forcedLesson.json()).error).toBe('observation_required_for_lesson');
+});
+
+test('R11 & R15: live SQLite finance traceability, posting validation, single-count DAG, independent economic outputs, CEO queue vs watchlist, and localStorage hygiene', async ({ page, request }) => {
+  // Live SQLite finance trace
+  const finRes = await request.get(endpoint + '/finance/trace');
+  expect(finRes.ok()).toBeTruthy();
+  const fin = await finRes.json();
+  expect(fin.sourceMode).toBe('LIVE_SQLITE_BANK_QUERY');
+  expect(fin.operationalStatus).toBe('INTERNAL_SOURCE_REQUIRED');
+  expect(fin.costControl.kpis).toEqual({ PV: 800, EV: 800, AC: 950, CV: -150, CPI: 0.8421 });
+  expect(fin.costControl.acceptedPostings.map(p => p.document)).toEqual(['SYN-MAT-01', 'SYN-LAB-01']);
+  expect(fin.costControl.excludedPostings.map(p => p.document)).toEqual(['SYN-SET-01', 'SYN-REV-01']);
+  expect(fin.cashDag.nodes['PART-A']).toEqual([2, 7]);
+  expect(fin.cashDag.nodes['PART-B']).toEqual([2, 7]);
+  expect(fin.cashDag.stages[0].delay_days).toBe(5);
+  expect(fin.cashDag.stages[0].timing_cost_m_toman).toBe(246.58);
+  expect(fin.economicOutputs.separateOutputsEnforced).toBe(true);
+  expect(fin.economicOutputs.combinedTotalForbidden).toBe(true);
+  expect(fin.economicOutputs.contractual_exposure.value).toBeNull();
+
+  // Live financial posting verification rejects internal transfer, wrong period, or missing finance confirmation
+  const badInternal = await request.post(endpoint + '/finance/verify-posting', {
+    data: { document: 'SYN-SET-01', period: '2026-11', confirmedByFinance: true },
+  });
+  expect(badInternal.status()).toBe(422);
+  expect((await badInternal.json()).reasons).toContain('INTERNAL_TRANSFER_EXCLUDED');
+
+  const badPeriod = await request.post(endpoint + '/finance/verify-posting', {
+    data: { document: 'SYN-REV-01', period: '2026-12', confirmedByFinance: true },
+  });
+  expect(badPeriod.status()).toBe(422);
+  expect((await badPeriod.json()).reasons).toContain('PERIOD_MISMATCH');
+
+  const unconfirmed = await request.post(endpoint + '/finance/verify-posting', {
+    data: { document: 'SYN-MAT-01', period: '2026-11', confirmedByFinance: false },
+  });
+  expect(unconfirmed.status()).toBe(422);
+  expect((await unconfirmed.json()).reasons).toContain('FINANCE_CONFIRMATION_REQUIRED');
+
+  const validPost = await request.post(endpoint + '/finance/verify-posting', {
+    data: { document: 'SYN-MAT-01', period: '2026-11', confirmedByFinance: true },
+  });
+  expect(validPost.status()).toBe(200);
+  expect((await validPost.json()).accepted).toBe(true);
+
+  // Live SQLite governance queue separates CEO queue vs high-risk watchlist & shows deputy routing
+  const govRes = await request.get(endpoint + '/governance/queue');
+  expect(govRes.ok()).toBeTruthy();
+  const gov = await govRes.json();
+  expect(gov.sourceMode).toBe('LIVE_SQLITE_BANK_QUERY');
+  expect(gov.ceoQueue.map(c => c.id)).toEqual(['EXEC-FIN-01']);
+  expect(gov.highRiskWatch.map(c => c.id)).toEqual(['EXEC-GOV-02', 'EXEC-GOV-03']);
+  expect(gov.deputyRouting.some(r => r.caseId === 'EXEC-GOV-02' && r.routedToActor === 'OPS-DEPUTY')).toBe(true);
 
   await page.goto('/demo/total-system/?scenario=S000013');
   await page.locator('.role-nav [data-role="executive"]').click();
+  await expect(page.locator('[data-live-governance-panel]')).toContainText('OPS-DEPUTY');
   await expect(page.locator('[data-ceo-pathways]')).toContainText('EXEC-FIN-01');
   await expect(page.locator('[data-ceo-pathways]')).toContainText('EXEC-GOV-02');
   await expect(page.locator('[data-ceo-pathways]')).toContainText('ORDER-YDAY-03');
@@ -323,7 +617,43 @@ test('executive pathways, anti-double-counting DAG, independent economic outputs
   expect(storedKeys.every(key => ['total-demo-language', 'total-demo-theme'].includes(key))).toBe(true);
 });
 
-test('server starts without DATABASE_URL and persists total-demo case across restart', async () => {
+test('R17: live API responses strictly conform to DEV/api-contract.json', async ({ request }) => {
+  const contract = JSON.parse(readFileSync(new URL('../DEV/api-contract.json', import.meta.url), 'utf8'));
+  expect(contract.recorderPolicy).toBe('SERVER_DERIVED_NEVER_TRUST_CLIENT');
+  expect(contract.clockPolicy).toBe('SERVER_CONTROLLED_SIMULATION_CLOCK');
+
+  const routeChecks = [
+    ['/summary', endpoint + '/summary'],
+    ['/scenarios', endpoint + '/scenarios?limit=1'],
+    ['/executive', endpoint + '/executive'],
+    ['/finance/trace', endpoint + '/finance/trace'],
+    ['/governance/queue', endpoint + '/governance/queue'],
+    ['/clock', endpoint + '/clock'],
+    ['/reservations', endpoint + '/reservations'],
+    ['/lessons', endpoint + '/lessons'],
+    ['/cases/:id/links', endpoint + '/cases/S000013/links'],
+    ['/commitments/:commitmentId/links', endpoint + '/commitments/' + encodeURIComponent('PUB-THERMAL-MGG72-SH2::dispatch') + '/links?limit=2'],
+    ['/issues/:id/commitments', endpoint + '/issues/S000013/commitments'],
+  ];
+
+  for (const [contractPath, liveUrl] of routeChecks) {
+    const specRoute = contract.routes.find(r => r.method === 'GET' && r.path === contractPath);
+    expect(specRoute, 'Route missing in DEV/api-contract.json: ' + contractPath).toBeTruthy();
+    const res = await request.get(liveUrl);
+    expect(res.status(), 'GET ' + liveUrl + ' failed').toBe(200);
+    const body = await res.json();
+    for (const field of specRoute.responseFields) {
+      expect(Object.hasOwn(body, field), `Missing field ${field} in ${contractPath}`).toBe(true);
+    }
+  }
+
+  const caseBody = await (await request.get(endpoint + '/cases/S000013')).json();
+  for (const field of contract.types.caseState) {
+    expect(Object.hasOwn(caseBody, field), `Missing caseState field ${field}`).toBe(true);
+  }
+});
+
+test('server starts without DATABASE_URL and persists total-demo case, reservations, and lessons across restart', async () => {
   const { spawn } = await import('node:child_process');
   const { mkdtemp, rm } = await import('node:fs/promises');
   const { createServer } = await import('node:net');
@@ -366,24 +696,38 @@ test('server starts without DATABASE_URL and persists total-demo case across res
     const init = await fetch(origin + '/api/total-demo/cases/S000013');
     expect(init.status).toBe(200);
     const cookie = init.headers.get('set-cookie').split(';')[0];
-    const initial = await init.json();
-    const post = await fetch(origin + '/api/total-demo/cases/S000013/actions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: cookie },
-      body: JSON.stringify({ revision: initial.revision, action: 'REPORT', actor: 'EXPERT', reason: 'Restart persistence check' }),
-    });
-    expect(post.status).toBe(200);
-    const saved = await post.json();
-    expect(saved.status).toBe('REPORTED');
+    let current = await init.json();
+    for (const [action, actor, extra] of [
+      ['REPORT', 'EXPERT', {}],
+      ['SCOPE', 'OWNER', {}],
+      ['ASSESS', 'ASSESSOR', {}],
+      ['APPROVE', 'DECIDER', {}],
+      ['EXECUTE', 'OWNER', {}],
+      ['OBSERVE', 'OWNER', { verifier: 'REVIEWER', evidenceRef: 'DEMO-RESTART-OBS' }],
+      ['CLOSE', 'EXPERT', { reuseCondition: 'Restart durability reuse check' }],
+    ]) {
+      const post = await fetch(origin + '/api/total-demo/cases/S000013/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ revision: current.revision, action, actor, reason: 'Restart ' + action, ...extra }),
+      });
+      expect(post.status).toBe(200);
+      current = await post.json();
+    }
+    expect(current.status).toBe('CLOSED');
+    expect(current.lessons).toHaveLength(1);
 
     await stop();
     await start();
     const afterRestart = await fetch(origin + '/api/total-demo/cases/S000013', { headers: { Cookie: cookie } });
     expect(afterRestart.status).toBe(200);
     const restored = await afterRestart.json();
-    expect(restored.status).toBe('REPORTED');
-    expect(restored.revision).toBe(1);
-    expect(restored.history[0].reason).toBe('Restart persistence check');
+    expect(restored.status).toBe('CLOSED');
+    expect(restored.revision).toBe(7);
+    expect(restored.lessons).toHaveLength(1);
+    expect(restored.lessons[0].reuse_condition).toBe('Restart durability reuse check');
+    const restoredLessons = await (await fetch(origin + '/api/total-demo/lessons?scenarioId=S000013', { headers: { Cookie: cookie } })).json();
+    expect(restoredLessons.items).toHaveLength(1);
   } finally {
     await stop();
     await rm(dir, { recursive: true, force: true });

@@ -1,1 +1,7 @@
 .pvpt/
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+scenario-lab/__pycache__/
+*.pyc

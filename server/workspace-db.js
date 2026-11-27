@@ -30,7 +30,7 @@ function transaction(db, run) {
 function migrate(db) {
   transaction(db, () => {
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 3) throw new Error('The PVPT database schema is newer than this application.');
+    if (version > 4) throw new Error('The PVPT database schema is newer than this application.');
     if (version === 0) db.exec(`
       CREATE TABLE workspaces (
         id TEXT PRIMARY KEY,
@@ -165,6 +165,87 @@ function migrate(db) {
       ) STRICT;
 
       PRAGMA user_version = 3;
+    `);
+    if (version < 4) db.exec(`
+      ALTER TABLE total_demo_reservations ADD COLUMN portfolio_id TEXT NOT NULL DEFAULT 'DEMO-PORTFOLIO-MAIN';
+      ALTER TABLE total_demo_reservation_attempts ADD COLUMN portfolio_id TEXT NOT NULL DEFAULT 'DEMO-PORTFOLIO-MAIN';
+      CREATE INDEX total_demo_res_portfolio_window
+        ON total_demo_reservations(workspace_id, portfolio_id, resource, start_min, end_min, expires_at);
+
+      ALTER TABLE total_demo_observations ADD COLUMN source_type TEXT NOT NULL DEFAULT 'WORKSPACE_DEMO_OBSERVATION';
+      ALTER TABLE total_demo_observations ADD COLUMN evidence_ref TEXT;
+      ALTER TABLE total_demo_observations ADD COLUMN recorder TEXT;
+
+      CREATE TABLE total_demo_clocks (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        portfolio_id TEXT NOT NULL,
+        current_minute INTEGER NOT NULL CHECK(current_minute >= 0),
+        mode TEXT NOT NULL CHECK(mode = 'CONTROLLED_SIMULATION_CLOCK'),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, portfolio_id)
+      ) STRICT;
+
+      CREATE TABLE total_demo_commitment_links (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        commitment_id TEXT NOT NULL,
+        issue_id TEXT NOT NULL,
+        option_id TEXT NOT NULL,
+        effect_type TEXT NOT NULL CHECK(effect_type IN ('DIRECT', 'SIDE_EFFECT_DONOR')),
+        review_status TEXT NOT NULL CHECK(review_status IN ('OBSERVED', 'CONFIRMED', 'UNKNOWN', 'NO_EFFECT')),
+        version INTEGER NOT NULL CHECK(version > 0),
+        evidence_ref TEXT,
+        actor TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, scenario_id, commitment_id, issue_id, option_id, version)
+      ) STRICT;
+
+      CREATE INDEX total_demo_links_commitment
+        ON total_demo_commitment_links(workspace_id, commitment_id, scenario_id);
+
+      CREATE TABLE total_demo_verifications (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('OPERATIONAL', 'FINANCIAL', 'OUTCOME')),
+        target_revision INTEGER NOT NULL CHECK(target_revision > 0),
+        decision_revision INTEGER,
+        recorder TEXT NOT NULL,
+        verifier TEXT NOT NULL,
+        document_ref TEXT,
+        period TEXT,
+        evidence_ref TEXT,
+        status TEXT NOT NULL CHECK(status = 'VERIFIED'),
+        at TEXT NOT NULL,
+        CHECK(lower(trim(recorder)) <> lower(trim(verifier))),
+        PRIMARY KEY(workspace_id, id)
+      ) STRICT;
+
+      CREATE TABLE total_demo_lessons (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        scenario_id TEXT NOT NULL,
+        anchor TEXT NOT NULL,
+        closure_type TEXT NOT NULL CHECK(closure_type IN ('OUTCOME_BASED_LESSON', 'DECLINED_CLOSURE_NOTE')),
+        decision_revision INTEGER,
+        observation_revision INTEGER,
+        evidence_ref TEXT,
+        reuse_condition TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id, id),
+        CHECK(
+          (closure_type = 'OUTCOME_BASED_LESSON' AND decision_revision IS NOT NULL AND observation_revision IS NOT NULL)
+          OR
+          (closure_type = 'DECLINED_CLOSURE_NOTE' AND observation_revision IS NULL)
+        )
+      ) STRICT;
+
+      CREATE INDEX total_demo_lessons_anchor
+        ON total_demo_lessons(workspace_id, anchor, scenario_id);
+
+      PRAGMA user_version = 4;
     `);
   });
 }
@@ -375,62 +456,129 @@ export function openWorkspaceDb(filename, seeds) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const readObservations = db.prepare(`
-    SELECT revision, decision_revision, actor, verifier, outcome, observed_effects, reason, at
+    SELECT revision, decision_revision, actor, recorder, verifier, outcome, source_type, evidence_ref, observed_effects, reason, at
     FROM total_demo_observations
     WHERE workspace_id = ? AND scenario_id = ?
     ORDER BY revision
   `);
   const addObservation = db.prepare(`
-    INSERT INTO total_demo_observations (workspace_id, scenario_id, revision, decision_revision, actor, verifier, outcome, observed_effects, reason, at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO total_demo_observations
+      (workspace_id, scenario_id, revision, decision_revision, actor, recorder, verifier, outcome, source_type, evidence_ref, observed_effects, reason, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const readClock = db.prepare(`
+    SELECT current_minute, mode, updated_at FROM total_demo_clocks
+    WHERE workspace_id = ? AND portfolio_id = ?
+  `);
+  const upsertClock = db.prepare(`
+    INSERT INTO total_demo_clocks (workspace_id, portfolio_id, current_minute, mode, updated_at)
+    VALUES (?, ?, ?, 'CONTROLLED_SIMULATION_CLOCK', ?)
+    ON CONFLICT(workspace_id, portfolio_id) DO UPDATE
+    SET current_minute = excluded.current_minute, updated_at = excluded.updated_at
   `);
   const readCaseReservations = db.prepare(`
-    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
+    SELECT id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
     FROM total_demo_reservations
-    WHERE workspace_id = ? AND scenario_id = ?
+    WHERE workspace_id = ? AND scenario_id = ? AND (? IS NULL OR portfolio_id = ?)
     ORDER BY start_min, id
   `);
   const readPortfolioReservations = db.prepare(`
-    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
+    SELECT id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
     FROM total_demo_reservations
-    WHERE workspace_id = ? AND (? IS NULL OR resource = ?)
+    WHERE workspace_id = ? AND (? IS NULL OR portfolio_id = ?) AND (? IS NULL OR resource = ?)
     ORDER BY start_min, id
   `);
   const readReservationAttempts = db.prepare(`
-    SELECT id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at
+    SELECT id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at
     FROM total_demo_reservation_attempts
-    WHERE workspace_id = ? AND (? IS NULL OR scenario_id = ?)
+    WHERE workspace_id = ? AND (? IS NULL OR scenario_id = ?) AND (? IS NULL OR portfolio_id = ?)
     ORDER BY rowid DESC LIMIT 50
   `);
   const readAttemptConflicts = db.prepare(`
-    SELECT c.reservation_id, r.scenario_id, r.order_id, r.owner, r.start_min, r.end_min
+    SELECT c.reservation_id, r.portfolio_id, r.scenario_id, r.order_id, r.owner, r.start_min, r.end_min
     FROM total_demo_reservation_conflicts c
     JOIN total_demo_reservations r ON r.workspace_id = c.workspace_id AND r.id = c.reservation_id
     WHERE c.workspace_id = ? AND c.attempt_id = ?
     ORDER BY c.reservation_id
   `);
   const findOverlaps = db.prepare(`
-    SELECT id, scenario_id, order_id, owner, start_min, end_min
+    SELECT id, portfolio_id, scenario_id, order_id, owner, start_min, end_min
     FROM total_demo_reservations
-    WHERE workspace_id = ? AND resource = ? AND expires_at > ? AND start_min < ? AND end_min > ?
+    WHERE workspace_id = ? AND portfolio_id = ? AND resource = ? AND expires_at > ? AND start_min < ? AND end_min > ?
     ORDER BY id
   `);
   const addAttempt = db.prepare(`
     INSERT INTO total_demo_reservation_attempts
-      (id, workspace_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, workspace_id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateAttemptStatus = db.prepare(`
     UPDATE total_demo_reservation_attempts SET status = ? WHERE workspace_id = ? AND id = ?
   `);
   const addReservation = db.prepare(`
     INSERT INTO total_demo_reservations
-      (id, workspace_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, workspace_id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const addConflict = db.prepare(`
     INSERT INTO total_demo_reservation_conflicts (workspace_id, attempt_id, reservation_id)
     VALUES (?, ?, ?)
+  `);
+  const readCaseLinks = db.prepare(`
+    SELECT scenario_id, commitment_id, issue_id, option_id, effect_type, review_status, version, evidence_ref, actor, at
+    FROM total_demo_commitment_links
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY commitment_id, version DESC
+  `);
+  const readCommitmentLinks = db.prepare(`
+    SELECT scenario_id, commitment_id, issue_id, option_id, effect_type, review_status, version, evidence_ref, actor, at
+    FROM total_demo_commitment_links
+    WHERE workspace_id = ? AND commitment_id = ?
+    ORDER BY scenario_id, version DESC
+  `);
+  const upsertCaseLink = db.prepare(`
+    INSERT INTO total_demo_commitment_links
+      (workspace_id, scenario_id, commitment_id, issue_id, option_id, effect_type, review_status, version, evidence_ref, actor, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const latestLinkVersion = db.prepare(`
+    SELECT COALESCE(MAX(version), 0) AS version
+    FROM total_demo_commitment_links
+    WHERE workspace_id = ? AND scenario_id = ? AND commitment_id = ? AND issue_id = ? AND option_id = ?
+  `);
+  const readVerifications = db.prepare(`
+    SELECT id, scenario_id, kind, target_revision, decision_revision, recorder, verifier, document_ref, period, evidence_ref, status, at
+    FROM total_demo_verifications
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY at, id
+  `);
+  const addVerification = db.prepare(`
+    INSERT INTO total_demo_verifications
+      (id, workspace_id, scenario_id, kind, target_revision, decision_revision, recorder, verifier, document_ref, period, evidence_ref, status, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VERIFIED', ?)
+  `);
+  const readLessonsByScenario = db.prepare(`
+    SELECT id, scenario_id, anchor, closure_type, decision_revision, observation_revision, evidence_ref, reuse_condition, summary, actor, created_at
+    FROM total_demo_lessons
+    WHERE workspace_id = ? AND scenario_id = ?
+    ORDER BY created_at, id
+  `);
+  const readLessonsByAnchor = db.prepare(`
+    SELECT id, scenario_id, anchor, closure_type, decision_revision, observation_revision, evidence_ref, reuse_condition, summary, actor, created_at
+    FROM total_demo_lessons
+    WHERE workspace_id = ? AND anchor = ?
+    ORDER BY created_at, id
+  `);
+  const readAllLessons = db.prepare(`
+    SELECT id, scenario_id, anchor, closure_type, decision_revision, observation_revision, evidence_ref, reuse_condition, summary, actor, created_at
+    FROM total_demo_lessons
+    WHERE workspace_id = ?
+    ORDER BY created_at DESC, id
+  `);
+  const addLesson = db.prepare(`
+    INSERT INTO total_demo_lessons
+      (id, workspace_id, scenario_id, anchor, closure_type, decision_revision, observation_revision, evidence_ref, reuse_condition, summary, actor, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const dataset = db.prepare('SELECT value FROM reference_datasets WHERE name = ?');
   const reference = JSON.parse(dataset.get('reference')?.value ?? '{}');
@@ -496,22 +644,90 @@ export function openWorkspaceDb(filename, seeds) {
         revision: row.revision,
         decisionRevision: row.decision_revision,
         actor: row.actor,
+        recorder: row.recorder ?? row.actor,
         verifier: row.verifier,
         outcome: row.outcome,
+        sourceType: row.source_type || 'WORKSPACE_DEMO_OBSERVATION',
+        evidenceRef: row.evidence_ref ?? null,
         effects: JSON.parse(row.observed_effects),
         reason: row.reason,
         at: row.at,
       }));
     },
-    readTotalDemoReservations(workspace, { scenario = null, resource = null } = {}) {
+    readTotalDemoClock(workspace, portfolioId = 'DEMO-PORTFOLIO-MAIN') {
+      const row = readClock.get(workspace, portfolioId);
+      return row
+        ? { portfolioId, currentMinute: row.current_minute, mode: row.mode, updatedAt: row.updated_at }
+        : { portfolioId, currentMinute: 0, mode: 'CONTROLLED_SIMULATION_CLOCK', updatedAt: null };
+    },
+    advanceTotalDemoClock(workspace, portfolioId, targetMinute) {
+      return transaction(db, () => {
+        const current = readClock.get(workspace, portfolioId)?.current_minute ?? 0;
+        if (targetMinute < current) return { error: 'clock_cannot_rewind', currentMinute: current };
+        const stamp = new Date().toISOString();
+        upsertClock.run(workspace, portfolioId, targetMinute, stamp);
+        return { portfolioId, currentMinute: targetMinute, mode: 'CONTROLLED_SIMULATION_CLOCK', updatedAt: stamp };
+      });
+    },
+    readTotalDemoReservations(workspace, { scenario = null, resource = null, portfolioId = null } = {}) {
       const reservations = scenario
-        ? readCaseReservations.all(workspace, scenario)
-        : readPortfolioReservations.all(workspace, resource, resource);
-      const attempts = readReservationAttempts.all(workspace, scenario, scenario).map(attempt => ({
+        ? readCaseReservations.all(workspace, scenario, portfolioId, portfolioId)
+        : readPortfolioReservations.all(workspace, portfolioId, portfolioId, resource, resource);
+      const attempts = readReservationAttempts.all(workspace, scenario, scenario, portfolioId, portfolioId).map(attempt => ({
         ...attempt,
         conflicts: readAttemptConflicts.all(workspace, attempt.id),
       }));
       return { reservations, attempts };
+    },
+    readTotalDemoCaseLinks(workspace, scenario) {
+      return readCaseLinks.all(workspace, scenario);
+    },
+    readTotalDemoCommitmentLinks(workspace, commitmentId) {
+      return readCommitmentLinks.all(workspace, commitmentId);
+    },
+    saveTotalDemoCommitmentLink(workspace, record) {
+      return transaction(db, () => {
+        const prev = latestLinkVersion.get(workspace, record.scenarioId, record.commitmentId, record.issueId, record.optionId).version;
+        const version = prev + 1;
+        const stamp = new Date().toISOString();
+        upsertCaseLink.run(
+          workspace, record.scenarioId, record.commitmentId, record.issueId, record.optionId,
+          record.effectType, record.reviewStatus, version, record.evidenceRef ?? null, record.actor, stamp
+        );
+        return { ...record, version, at: stamp };
+      });
+    },
+    readTotalDemoVerifications(workspace, scenario) {
+      return readVerifications.all(workspace, scenario);
+    },
+    recordTotalDemoVerification(workspace, record) {
+      return transaction(db, () => {
+        const id = 'VER-' + randomBytes(6).toString('hex').toUpperCase();
+        const stamp = new Date().toISOString();
+        addVerification.run(
+          id, workspace, record.scenarioId, record.kind, record.targetRevision,
+          record.decisionRevision ?? null, record.recorder, record.verifier,
+          record.documentRef ?? null, record.period ?? null, record.evidenceRef ?? null, stamp
+        );
+        return { id, ...record, status: 'VERIFIED', at: stamp };
+      });
+    },
+    readTotalDemoLessons(workspace, { scenarioId = null, anchor = null } = {}) {
+      if (scenarioId) return readLessonsByScenario.all(workspace, scenarioId);
+      if (anchor) return readLessonsByAnchor.all(workspace, anchor);
+      return readAllLessons.all(workspace);
+    },
+    recordTotalDemoLesson(workspace, record) {
+      return transaction(db, () => {
+        const id = 'LES-' + randomBytes(6).toString('hex').toUpperCase();
+        const stamp = new Date().toISOString();
+        addLesson.run(
+          id, workspace, record.scenarioId, record.anchor, record.closureType,
+          record.decisionRevision ?? null, record.observationRevision ?? null,
+          record.evidenceRef ?? null, record.reuseCondition, record.summary, record.actor, stamp
+        );
+        return { id, ...record, created_at: stamp };
+      });
     },
     appendTotalDemoAction(workspace, scenario, revision, record) {
       return transaction(db, () => {
@@ -529,37 +745,55 @@ export function openWorkspaceDb(filename, seeds) {
         if (record.action === 'OBSERVE' && record.observedEffects) {
           const approval = readApproval.get(workspace, scenario);
           if (!approval) return { error: 'approval_required' };
-          addObservation.run(workspace, scenario, nextRevision, approval.decision_revision,
-            record.actor, record.verifier ?? null, record.outcome || 'PENDING',
-            JSON.stringify(record.observedEffects), record.reason, stamp);
+          addObservation.run(
+            workspace, scenario, nextRevision, approval.decision_revision,
+            record.actor, record.serverRecorder ?? record.actor, record.verifier ?? null,
+            record.outcome || 'PENDING', record.sourceType || 'WORKSPACE_DEMO_OBSERVATION',
+            record.evidenceRef ?? null, JSON.stringify(record.observedEffects), record.reason, stamp
+          );
+        }
+        if (record.action === 'CLOSE' && record.lesson) {
+          const lessonId = 'LES-' + randomBytes(6).toString('hex').toUpperCase();
+          addLesson.run(
+            lessonId, workspace, scenario, record.lesson.anchor, record.lesson.closureType,
+            record.lesson.decisionRevision ?? null, record.lesson.observationRevision ?? null,
+            record.lesson.evidenceRef ?? null, record.lesson.reuseCondition, record.lesson.summary,
+            record.actor, stamp
+          );
         }
         return { revision: nextRevision };
       });
     },
     reserveTotalDemoCapacity(workspace, request) {
       return transaction(db, () => {
-        const { scenarioId, decisionRevision, resource, owner, orderId, start, end, expires, now } = request;
+        const { portfolioId = 'DEMO-PORTFOLIO-MAIN', scenarioId, decisionRevision, resource, owner, orderId, start, end, expires } = request;
+        const now = readClock.get(workspace, portfolioId)?.current_minute ?? 0;
+        if (start >= end || start < now || expires <= now) {
+          return { error: 'invalid_reservation_window', serverNow: now };
+        }
         const stamp = new Date().toISOString();
         const attemptId = 'RES-' + randomBytes(6).toString('hex').toUpperCase();
         const approval = readApproval.get(workspace, scenarioId);
         const validApproval = approval && (decisionRevision === undefined || approval.decision_revision === decisionRevision);
-        addAttempt.run(attemptId, workspace, scenarioId, validApproval ? approval.decision_revision : null,
+        addAttempt.run(attemptId, workspace, portfolioId, scenarioId, validApproval ? approval.decision_revision : null,
           resource, owner, orderId, start, end, expires, now, 'PENDING', stamp);
         if (!validApproval) {
           updateAttemptStatus.run('APPROVAL_REQUIRED', workspace, attemptId);
-          return { id: attemptId, status: 'APPROVAL_REQUIRED', conflictingOrders: [], conflicts: [] };
+          return { id: attemptId, portfolioId, serverNow: now, status: 'APPROVAL_REQUIRED', conflictingOrders: [], conflicts: [] };
         }
-        const collisions = findOverlaps.all(workspace, resource, now, end, start);
+        const collisions = findOverlaps.all(workspace, portfolioId, resource, now, end, start);
         const status = collisions.length ? 'BLOCKED_CONFLICT' : 'RESERVED';
         updateAttemptStatus.run(status, workspace, attemptId);
         if (status === 'RESERVED') {
-          addReservation.run(attemptId, workspace, scenarioId, approval.decision_revision,
+          addReservation.run(attemptId, workspace, portfolioId, scenarioId, approval.decision_revision,
             resource, owner, orderId, start, end, expires, now, stamp);
         } else {
           for (const hit of collisions) addConflict.run(workspace, attemptId, hit.id);
         }
         return {
           id: attemptId,
+          portfolioId,
+          serverNow: now,
           status,
           decisionRevision: approval.decision_revision,
           conflictingOrders: [...new Set(collisions.map(hit => hit.order_id))].sort(),
