@@ -121,6 +121,12 @@ def write_catalog(bank, run_id, destination):
         rows = db.execute("""
             SELECT s.id, s.anchor, s.stage, s.resource, s.option, s.profile, s.variant,
                    s.gate, s.decision, s.execution, s.outcome, s.data_class,
+                   CASE
+                       WHEN s.gate IN ('WAIT_EVIDENCE','EXPIRED','BLOCKED_DONOR','BLOCKED_RESERVATION') THEN 'P0'
+                       WHEN s.gate='STALE' OR s.variant=1 OR
+                            s.execution IN ('FAILED','PARTIAL','CANCELLED','SUPERSEDED','IN_PROGRESS') THEN 'P1'
+                       ELSE 'P2'
+                   END AS test_priority,
                    t.test_id, t.outcome AS test_result,
                    json_extract(t.evidence_json, '$.expected[#-1]') AS expected_terminal,
                    json_extract(t.evidence_json, '$.actual') AS observed_terminal
