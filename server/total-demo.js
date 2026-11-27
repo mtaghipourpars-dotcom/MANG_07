@@ -193,40 +193,57 @@ function buildScenarioLinks(scenario, effects, workspaceLinks) {
   });
 }
 
-function computeRiskBreakdown(scenarioEffects, observations, verifications) {
+export function computeRiskBreakdown(scenarioEffects, observations, verifications = []) {
+  const latest = observations.length ? observations.at(-1) : null;
+  const obsEffects = latest?.effects || [];
   const donorBankRow = scenarioEffects.find(item => item.node === 'donor_delivery');
-  const donorImpacted = Boolean(donorBankRow && (
-    (donorBankRow.proposed !== null && donorBankRow.proposed > donorBankRow.baseline) ||
-    (donorBankRow.without_action !== null && donorBankRow.without_action > donorBankRow.baseline) ||
-    (donorBankRow.observed !== null && donorBankRow.observed > donorBankRow.baseline)
-  ));
+  const donorObs = obsEffects.find(item => item.node === 'donor_delivery');
+  const donorImpacted = Boolean(
+    (donorBankRow && (
+      (donorBankRow.proposed !== null && donorBankRow.proposed > donorBankRow.baseline) ||
+      (donorBankRow.without_action !== null && donorBankRow.without_action > donorBankRow.baseline) ||
+      (donorBankRow.observed !== null && donorBankRow.observed > donorBankRow.baseline)
+    )) ||
+    (donorObs && donorObs.observed !== null && donorObs.observed !== undefined && donorObs.observed > donorObs.baseline)
+  );
 
-  if (!observations.length) {
+  if (!latest) {
+    const unknownNodes = scenarioEffects
+      .filter(item => item.node !== 'donor_delivery' || donorImpacted)
+      .map(item => item.node);
     return {
       primaryChainRiskStatus: 'UNVERIFIED_OPEN',
       donorSideEffectRiskStatus: donorImpacted ? 'UNVERIFIED_OPEN' : 'NO_DONOR_IMPACT',
       remainingRiskStatus: 'UNVERIFIED_OPEN',
+      observedDelayConfirmed: false,
+      unknownNodes,
     };
   }
 
-  const latest = observations.at(-1);
-  const effects = latest.effects || [];
-  const primaryEffects = effects.filter(item => item.node !== 'donor_delivery');
-  const donorObs = effects.find(item => item.node === 'donor_delivery');
+  const primaryEffects = obsEffects.filter(item => item.node !== 'donor_delivery');
   const hasIndependentOutcomeVerification = Boolean(
     latest.verifier ||
     verifications.some(v => v.kind === 'OUTCOME' && v.target_revision === latest.revision)
   );
 
+  const unknownPrimaryNodes = primaryEffects
+    .filter(item => item.observed === null || item.observed === undefined)
+    .map(item => item.node);
+  const latePrimaryNodes = primaryEffects
+    .filter(item => item.observed !== null && item.observed !== undefined && item.observed > item.baseline)
+    .map(item => item.node);
+
   let primaryChainRiskStatus = 'UNVERIFIED_OPEN';
-  if (primaryEffects.length && !primaryEffects.some(item => item.observed === null || item.observed === undefined)) {
-    if (primaryEffects.some(item => item.observed > item.baseline)) {
-      primaryChainRiskStatus = 'LATE_REALIZED';
-    } else if (hasIndependentOutcomeVerification) {
-      primaryChainRiskStatus = 'MET_VERIFIED';
-    } else {
-      primaryChainRiskStatus = 'UNVERIFIED_OPEN';
-    }
+  if (latePrimaryNodes.length > 0 && unknownPrimaryNodes.length > 0) {
+    primaryChainRiskStatus = 'LATE_REALIZED_PARTIAL_UNKNOWN';
+  } else if (latePrimaryNodes.length > 0) {
+    primaryChainRiskStatus = 'LATE_REALIZED';
+  } else if (unknownPrimaryNodes.length > 0 || !primaryEffects.length) {
+    primaryChainRiskStatus = 'UNVERIFIED_OPEN';
+  } else if (hasIndependentOutcomeVerification) {
+    primaryChainRiskStatus = 'MET_VERIFIED';
+  } else {
+    primaryChainRiskStatus = 'UNVERIFIED_OPEN';
   }
 
   let donorSideEffectRiskStatus = 'NO_DONOR_IMPACT';
@@ -242,14 +259,37 @@ function computeRiskBreakdown(scenarioEffects, observations, verifications) {
     }
   }
 
+  const observedDelayConfirmed =
+    primaryChainRiskStatus === 'LATE_REALIZED' ||
+    primaryChainRiskStatus === 'LATE_REALIZED_PARTIAL_UNKNOWN' ||
+    donorSideEffectRiskStatus === 'LATE_REALIZED';
+
+  const hasUnknownObservations =
+    primaryChainRiskStatus === 'UNVERIFIED_OPEN' ||
+    primaryChainRiskStatus === 'LATE_REALIZED_PARTIAL_UNKNOWN' ||
+    donorSideEffectRiskStatus === 'UNVERIFIED_OPEN';
+
   let remainingRiskStatus = 'MET_VERIFIED';
-  if (primaryChainRiskStatus === 'UNVERIFIED_OPEN' || donorSideEffectRiskStatus === 'UNVERIFIED_OPEN') {
-    remainingRiskStatus = 'UNVERIFIED_OPEN';
-  } else if (primaryChainRiskStatus === 'LATE_REALIZED' || donorSideEffectRiskStatus === 'LATE_REALIZED') {
+  if (observedDelayConfirmed && hasUnknownObservations) {
+    remainingRiskStatus = 'LATE_REALIZED_PARTIAL_UNKNOWN';
+  } else if (observedDelayConfirmed) {
     remainingRiskStatus = 'LATE_REALIZED';
+  } else if (hasUnknownObservations) {
+    remainingRiskStatus = 'UNVERIFIED_OPEN';
   }
 
-  return { primaryChainRiskStatus, donorSideEffectRiskStatus, remainingRiskStatus };
+  const unknownNodes = [
+    ...unknownPrimaryNodes,
+    ...(donorSideEffectRiskStatus === 'UNVERIFIED_OPEN' ? ['donor_delivery'] : []),
+  ];
+
+  return {
+    primaryChainRiskStatus,
+    donorSideEffectRiskStatus,
+    remainingRiskStatus,
+    observedDelayConfirmed,
+    unknownNodes,
+  };
 }
 
 function caseState(db, storage, workspace, scenario) {
@@ -280,6 +320,8 @@ function caseState(db, storage, workspace, scenario) {
     primaryChainRiskStatus: risk.primaryChainRiskStatus,
     donorSideEffectRiskStatus: risk.donorSideEffectRiskStatus,
     remainingRiskStatus: risk.remainingRiskStatus,
+    observedDelayConfirmed: risk.observedDelayConfirmed,
+    unknownNodes: risk.unknownNodes,
   };
 }
 
@@ -390,6 +432,8 @@ function computeLiveFinanceTrace(db) {
     sourceMode: 'LIVE_SQLITE_BANK_QUERY',
     operationalStatus,
     costControl: {
+      linkedCaseId: cashStages[0]?.scenario ?? 'EXEC-FIN-01',
+      baseline: plan?.baseline ?? null,
       plan,
       kpis: { PV: pv, EV: ev, AC: ac, CV: cv, CPI: cpi },
       acceptedPostings,
@@ -398,6 +442,10 @@ function computeLiveFinanceTrace(db) {
         documentCount: postings.length,
         acceptedCount: acceptedPostings.length,
         excludedCount: excludedPostings.length,
+        wbs: plan?.wbs ?? null,
+        workOrder: plan?.work_order ?? null,
+        period: plan?.period ?? null,
+        baseline: plan?.baseline ?? null,
       },
     },
     cashDag: {
@@ -907,7 +955,7 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
     if (Object.hasOwn(body, 'recorder') && body.recorder !== undefined) {
       return response.status(400).json({ error: 'client_recorder_forbidden' });
     }
-    const { revision, action, actor, reason, verifier, evidenceVersion, evidenceRef, reuseCondition } = body;
+    const { revision, action, actor, reason, verifier, evidenceVersion, evidenceRef, reuseCondition, observedOverrides } = body;
     if (!Number.isSafeInteger(revision) || revision < 0 || typeof action !== 'string' || typeof actor !== 'string' ||
         typeof reason !== 'string' || !reason.trim() || reason.length > 1000) {
       return response.status(400).json({ error: 'invalid_case_action' });
@@ -923,6 +971,21 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
     }
     if (reuseCondition !== undefined && (typeof reuseCondition !== 'string' || !reuseCondition.trim() || reuseCondition.length > 500)) {
       return response.status(400).json({ error: 'invalid_case_action' });
+    }
+    let overrideMap = null;
+    if (observedOverrides !== undefined) {
+      if (action !== 'OBSERVE' || !Array.isArray(observedOverrides) || !observedOverrides.length ||
+          typeof evidenceRef !== 'string' || !evidenceRef.trim()) {
+        return response.status(400).json({ error: 'invalid_case_action' });
+      }
+      overrideMap = new Map();
+      for (const entry of observedOverrides) {
+        if (!entry || typeof entry !== 'object' || !knownNodes.has(entry.node) ||
+            (entry.observed !== null && (!Number.isSafeInteger(entry.observed) || entry.observed < 0 || entry.observed > 100000))) {
+          return response.status(400).json({ error: 'invalid_case_action' });
+        }
+        overrideMap.set(entry.node, entry.observed);
+      }
     }
     const state = caseState(db, storage, workspace, scenario);
     if (revision !== state.revision) return response.status(409).json({ error: 'revision_conflict', ...state });
@@ -960,7 +1023,7 @@ export function totalDemoRouter({ bank, storage, getWorkspace, allowWrite }) {
           node: item.node,
           baseline: item.baseline,
           current_forecast: item.current_forecast,
-          observed: item.observed,
+          observed: overrideMap && overrideMap.has(item.node) ? overrideMap.get(item.node) : item.observed,
         }))
       : null;
 

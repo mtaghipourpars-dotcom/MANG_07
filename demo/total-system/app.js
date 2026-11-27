@@ -73,7 +73,7 @@ const labels = {
   WORKSPACE_REVIEW:['بازبینی ثبت‌شده در فضای کار','Workspace link review'],
   OPERATIONAL:['تأیید عملیاتی','Operational verification'], FINANCIAL:['تأیید مالی','Financial verification'], OUTCOME:['تأیید نتیجه','Outcome verification'],
   UNVERIFIED:['تأییدنشده / باز','Unverified / open'], UNVERIFIED_OPEN:['نامشخص / باز (نیازمند شاهد نتیجه)','Unknown / open (observation required)'],
-  LATE_REALIZED:['تأخیر محقق‌شده','Late realized'], MET_VERIFIED:['تعهد محقق و تأییدشده','Met and verified'],
+  LATE_REALIZED:['تأخیر محقق‌شده','Late realized'], LATE_REALIZED_PARTIAL_UNKNOWN:['تأخیر محقق‌شده همراه با گره نامشخص','Late realized with unknown node(s)'], MET_VERIFIED:['تعهد محقق و تأییدشده','Met and verified'],
   INTERNAL_SOURCE_REQUIRED:['نیازمند منبع داخلی','Internal source required'],
   BLOCKED_INTERNAL_SOURCE_REQUIRED:['مسدود — نیازمند منبع هویتی داخلی','Blocked — internal IAM source required'],
   DEMO_SIMULATED_ROLE:['نقش نمایشی آموزشی','Simulated demo role'],
@@ -360,7 +360,7 @@ function lifecycleSeparationCard(detail, record) {
       [t('۶. پیش‌بینی مصوب (تغییرناپذیر)','6. Approved forecast (immutable)'), approved ? badge(t('ثابت در نسخه ','Frozen at v') + approved.decisionRevision, 'good') : show(null)],
       [t('۷الف. ریسک زنجیره اصلی','7a. Primary chain risk'), badge(show(record.primaryChainRiskStatus), record.primaryChainRiskStatus === 'MET_VERIFIED' ? 'good' : 'warn')],
       [t('۷ب. ریسک سفارش اهداکننده (جانبی)','7b. Donor side-effect risk'), badge(show(record.donorSideEffectRiskStatus), ['MET_VERIFIED','NO_DONOR_IMPACT'].includes(record.donorSideEffectRiskStatus) ? 'good' : 'warn')],
-      [t('۷ج. ریسک باقیمانده کل','7c. Combined remaining risk'), badge(show(record.remainingRiskStatus), record.remainingRiskStatus === 'MET_VERIFIED' ? 'good' : 'warn')]
+      [t('۷ج. ریسک باقیمانده کل','7c. Combined remaining risk'), badge(show(record.remainingRiskStatus), record.remainingRiskStatus === 'MET_VERIFIED' ? 'good' : 'warn') + ((record.unknownNodes?.length) ? ' · ' + t('گره نامشخص: ','Unknown: ') + record.unknownNodes.map(show).join('، ') : '')]
     ]) +
     '<p class="muted">' + t('ثبت مشاهدهٔ جدید پیش‌بینی مصوب را بازنویسی نمی‌کند. اگر اثر اصلی یا اثر جانبی سفارش اهداکننده بدون شاهد تأییدشده باشد، وضعیت «نامشخص / باز» باقی می‌ماند.',
       'Recording an observation never overwrites the approved forecast snapshot. If either primary chain or an impacted donor order lacks verified evidence, status stays unknown/open.') + '</p>',
@@ -519,6 +519,11 @@ function executiveFivePathways(data) {
 
   return card(t('پنج مسیر مدیریتی مدیرعامل (شواهد فقط‌خواندنی بانک آموزشی · DEMO_SYNTHETIC)','CEO five traceable pathways (read-only training bank evidence · DEMO_SYNTHETIC)'),
     '<p class="muted">' + badge(show('READ_ONLY_PRECOMPUTED_SCENARIO_BANK')) + ' ' + badge(show('INTERNAL_SOURCE_REQUIRED'), 'warn') + '</p>' +
+    '<div class="actions" data-ceo-drilldown>' +
+      button(t('پیگیری پرونده و شاهد مالی زنده','Trace case & live financial evidence'), 'data-section="evidence"') +
+      button(t('مرور بانک سناریوها','Inspect scenario bank'), 'data-section="scenarios"') +
+      button(t('بازگشت به تعهدهای پرونده جاری','Trace current case commitments'), 'data-role="owner"') +
+    '</div>' +
     '<h3>' + t('۱. تعهدهای افق ۲۴ و ۷۲ ساعت','1. 24h and 72h commitments') + '</h3>' + promisesHtml +
     '<h3>' + t('۲. تصمیم مختص مدیرعامل در برابر صف پایش پرریسک','2. CEO-only decision queue vs high-risk watchlist') + '</h3>' + ceoQueueHtml + watchHtml +
     '<h3>' + t('۳. اثر تصمیم بر قول‌های دیگر (تعارض سفارش‌ها)','3. Decision impact on other promises (order conflict)') + '</h3>' + conflictHtml +

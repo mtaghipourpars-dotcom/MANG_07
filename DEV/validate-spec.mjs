@@ -29,7 +29,9 @@ assert.equal(api.workflowStorage.env, spec.data.workspaceDatabaseEnv);
 assert.equal(api.workflow.actorsAreDemoRoles, true);
 assert.equal(api.recorderPolicy, 'SERVER_DERIVED_NEVER_TRUST_CLIENT');
 assert.equal(api.clockPolicy, 'SERVER_CONTROLLED_SIMULATION_CLOCK');
+assert.equal(api.portfolioScope, 'SHARED_ACROSS_AUTHORIZED_SESSIONS');
 assert.equal(api.enterpriseAuthStatus, 'BLOCKED_INTERNAL_SOURCE_REQUIRED');
+assert(existsSync(new URL('scripts/start-local.mjs', root)), 'Missing one-command launcher: scripts/start-local.mjs');
 const routeKeys = new Set(api.routes.map(route => route.method + ' ' + route.path));
 assert.equal(routeKeys.size, api.routes.length);
 for (const requiredRoute of [

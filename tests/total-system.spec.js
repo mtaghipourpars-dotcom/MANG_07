@@ -327,7 +327,8 @@ test('R10: approved forecast stays immutable after observe, separates primary vs
   expect(transferState.donorSideEffectRiskStatus).toBe('UNVERIFIED_OPEN');
   expect(transferState.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
 
-  // Partially verified scenario (S000014, collection.observed === null) stays UNVERIFIED_OPEN even after OBSERVE
+  // Partially verified scenario (S000014, engineering..acceptance delayed AND collection.observed === null)
+  // MUST preserve confirmed delay (LATE_REALIZED_PARTIAL_UNKNOWN) while surfacing unknownNodes=['collection']
   let partial = await (await request.get(endpoint + '/cases/S000014')).json();
   for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['APPROVE', 'DECIDER'], ['EXECUTE', 'OWNER']]) {
     partial = await (await request.post(endpoint + '/cases/S000014/actions', {
@@ -337,8 +338,10 @@ test('R10: approved forecast stays immutable after observe, separates primary vs
   const partialObs = await (await request.post(endpoint + '/cases/S000014/actions', {
     data: { revision: partial.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', reason: 'Partial observe' },
   })).json();
-  expect(partialObs.primaryChainRiskStatus).toBe('UNVERIFIED_OPEN');
-  expect(partialObs.remainingRiskStatus).toBe('UNVERIFIED_OPEN');
+  expect(partialObs.primaryChainRiskStatus).toBe('LATE_REALIZED_PARTIAL_UNKNOWN');
+  expect(partialObs.remainingRiskStatus).toBe('LATE_REALIZED_PARTIAL_UNKNOWN');
+  expect(partialObs.observedDelayConfirmed).toBe(true);
+  expect(partialObs.unknownNodes).toEqual(['collection']);
 
   await page.goto('/demo/total-system/?scenario=S000013');
   const directTable = page.locator('[data-effect-group="direct"] table');
@@ -381,8 +384,21 @@ test('R10: approved forecast stays immutable after observe, separates primary vs
   expect(selfVerify.status()).toBe(403);
   expect((await selfVerify.json()).error).toBe('self_verification_forbidden');
 
+  // Workspace observation recording donor side-effect delay + unknown node keeps approvedSnapshot immutable and surfaces donor LATE_REALIZED
   const obsRes = await request.post(url + '/actions', {
-    data: { revision: current.revision, action: 'OBSERVE', actor: 'OWNER', verifier: 'REVIEWER', evidenceVersion: 4, evidenceRef: 'DEMO-OBS-013', reason: 'Independent observation' },
+    data: {
+      revision: current.revision,
+      action: 'OBSERVE',
+      actor: 'OWNER',
+      verifier: 'REVIEWER',
+      evidenceVersion: 4,
+      evidenceRef: 'DEMO-OBS-013',
+      observedOverrides: [
+        { node: 'donor_delivery', observed: 40 },
+        { node: 'collection', observed: null },
+      ],
+      reason: 'Independent observation with donor delay and unknown collection',
+    },
   });
   expect(obsRes.ok()).toBeTruthy();
   current = await obsRes.json();
@@ -391,102 +407,125 @@ test('R10: approved forecast stays immutable after observe, separates primary vs
   expect(current.observations[0].verifier).toBe('REVIEWER');
   expect(current.observations[0].sourceType).toBe('WORKSPACE_DEMO_OBSERVATION');
   expect(current.observations[0].evidenceRef).toBe('DEMO-OBS-013');
-  expect(current.primaryChainRiskStatus).toBe('LATE_REALIZED');
-  expect(current.remainingRiskStatus).toBe('LATE_REALIZED');
+  expect(current.donorSideEffectRiskStatus).toBe('LATE_REALIZED');
+  expect(current.primaryChainRiskStatus).toBe('LATE_REALIZED_PARTIAL_UNKNOWN');
+  expect(current.remainingRiskStatus).toBe('LATE_REALIZED_PARTIAL_UNKNOWN');
+  expect(current.observedDelayConfirmed).toBe(true);
+  expect(current.unknownNodes).toEqual(['collection']);
 });
 
-test('R9: portfolio-scoped reservation uses server clock, rejects client now, passes atomic concurrency, adjacency, expiry release, and portfolio isolation', async ({ request }) => {
-  const listRes = await request.get(endpoint + '/scenarios?resource=drawing&gate=FEASIBLE&decision=APPROVED&limit=2');
-  expect(listRes.ok()).toBeTruthy();
-  const { items } = await listRes.json();
-  expect(items).toHaveLength(2);
-  const [firstId, secondId] = items.map(item => item.id);
+test('R9: two distinct sessions sharing one portfolio enforce atomic overlap conflict, adjacency, server-clock expiry release, and independent portfolio isolation', async ({ playwright, baseURL }) => {
+  const sessionA = await playwright.request.newContext({ baseURL });
+  const sessionB = await playwright.request.newContext({ baseURL });
+  const runSuffix = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+  const sharedPortfolio = 'PF-SHARED-' + runSuffix;
+  const altPortfolio = 'PF-ALT-' + runSuffix;
 
-  await request.get(endpoint + '/cases/' + firstId);
+  try {
+    const listRes = await sessionA.get(endpoint + '/scenarios?resource=drawing&gate=FEASIBLE&decision=APPROVED&limit=2');
+    expect(listRes.ok()).toBeTruthy();
+    const { items } = await listRes.json();
+    expect(items).toHaveLength(2);
+    const [firstId, secondId] = items.map(item => item.id);
 
-  // Client-supplied now MUST be rejected on both GET and POST
-  const clientNowGet = await request.get(endpoint + '/reservations?now=10');
-  expect(clientNowGet.status()).toBe(400);
-  expect((await clientNowGet.json()).error).toBe('client_time_forbidden');
+    // Bootstrap two DISTINCT workspace cookies (sessionA vs sessionB)
+    const bootA = await sessionA.get(endpoint + '/cases/' + firstId);
+    const bootB = await sessionB.get(endpoint + '/cases/' + secondId);
+    expect(bootA.ok()).toBeTruthy();
+    expect(bootB.ok()).toBeTruthy();
+    const cookieA = bootA.headers()['set-cookie']?.split(';')[0];
+    const cookieB = bootB.headers()['set-cookie']?.split(';')[0];
+    expect(cookieA).toBeTruthy();
+    expect(cookieB).toBeTruthy();
+    expect(cookieA).not.toBe(cookieB);
 
-  const clientNowPost = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, now: 0, owner: 'OWNER' },
-  });
-  expect(clientNowPost.status()).toBe(400);
-  expect((await clientNowPost.json()).error).toBe('client_time_forbidden');
+    // Client-supplied now MUST be rejected on both GET and POST
+    const clientNowGet = await sessionA.get(endpoint + '/reservations?now=10&portfolio_id=' + sharedPortfolio);
+    expect(clientNowGet.status()).toBe(400);
+    expect((await clientNowGet.json()).error).toBe('client_time_forbidden');
 
-  // Unapproved case cannot reserve
-  const unapproved = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER' },
-  });
-  expect(unapproved.status()).toBe(403);
-  expect((await unapproved.json()).error).toBe('approval_required');
+    const clientNowPost = await sessionA.post(endpoint + '/cases/' + firstId + '/reservations', {
+      data: { portfolio_id: sharedPortfolio, start_min: 600, end_min: 780, expires_at: 1000, now: 0, owner: 'OWNER' },
+    });
+    expect(clientNowPost.status()).toBe(400);
+    expect((await clientNowPost.json()).error).toBe('client_time_forbidden');
 
-  async function approveCase(id) {
-    let current = await (await request.get(endpoint + '/cases/' + id)).json();
-    for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['APPROVE', 'DECIDER']]) {
-      const res = await request.post(endpoint + '/cases/' + id + '/actions', {
-        data: { revision: current.revision, action, actor, reason: 'Reserve flow ' + action },
-      });
-      expect(res.ok()).toBeTruthy();
-      current = await res.json();
+    // Unapproved case cannot reserve
+    const unapproved = await sessionA.post(endpoint + '/cases/' + firstId + '/reservations', {
+      data: { portfolio_id: sharedPortfolio, start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER' },
+    });
+    expect(unapproved.status()).toBe(403);
+    expect((await unapproved.json()).error).toBe('approval_required');
+
+    async function approveCase(ctx, id) {
+      let current = await (await ctx.get(endpoint + '/cases/' + id)).json();
+      for (const [action, actor] of [['REPORT', 'EXPERT'], ['SCOPE', 'OWNER'], ['ASSESS', 'ASSESSOR'], ['APPROVE', 'DECIDER']]) {
+        const res = await ctx.post(endpoint + '/cases/' + id + '/actions', {
+          data: { revision: current.revision, action, actor, reason: 'Reserve flow ' + action },
+        });
+        expect(res.ok()).toBeTruthy();
+        current = await res.json();
+      }
+      expect(current.reservations).toEqual([]);
+      return current;
     }
-    expect(current.reservations).toEqual([]);
-    return current;
+
+    const firstCase = await approveCase(sessionA, firstId);
+    const secondCase = await approveCase(sessionB, secondId);
+
+    // Atomic cross-session concurrency: TWO distinct authorized sessions hitting ONE shared portfolio simultaneously -> strictly [201, 409]
+    const [p1, p2] = await Promise.all([
+      sessionA.post(endpoint + '/cases/' + firstId + '/reservations', {
+        data: { portfolio_id: sharedPortfolio, start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
+      }),
+      sessionB.post(endpoint + '/cases/' + secondId + '/reservations', {
+        data: { portfolio_id: sharedPortfolio, start_min: 700, end_min: 860, expires_at: 1200, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+      }),
+    ]);
+    const statuses = [p1.status(), p2.status()].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    // Independent portfolio isolation: sessionB reserving overlapping [600, 780) on altPortfolio MUST succeed
+    const otherPortfolio = await sessionB.post(endpoint + '/cases/' + secondId + '/reservations', {
+      data: { portfolio_id: altPortfolio, start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+    });
+    expect(otherPortfolio.status()).toBe(201);
+    expect((await otherPortfolio.json()).portfolioId).toBe(altPortfolio);
+
+    // Adjacent slots across two distinct sessions on sharedPortfolio: [1200, 1380) by sessionA then [1380, 1500) by sessionB both succeed
+    const adj1 = await sessionA.post(endpoint + '/cases/' + firstId + '/reservations', {
+      data: { portfolio_id: sharedPortfolio, start_min: 1200, end_min: 1380, expires_at: 1250, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
+    });
+    expect(adj1.status()).toBe(201);
+    const adj2 = await sessionB.post(endpoint + '/cases/' + secondId + '/reservations', {
+      data: { portfolio_id: sharedPortfolio, start_min: 1380, end_min: 1500, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+    });
+    expect(adj2.status()).toBe(201);
+
+    // Server clock advance on sharedPortfolio expires sessionA's [1200, 1380) slot at 1250 and releases it for sessionB
+    const adv = await sessionA.post(endpoint + '/clock/advance', {
+      data: { portfolio_id: sharedPortfolio, minute: 1250 },
+    });
+    expect(adv.status()).toBe(200);
+    expect((await adv.json()).currentMinute).toBe(1250);
+
+    // Clock cannot rewind (even from sessionB)
+    const rewind = await sessionB.post(endpoint + '/clock/advance', {
+      data: { portfolio_id: sharedPortfolio, minute: 1200 },
+    });
+    expect(rewind.status()).toBe(400);
+    expect((await rewind.json()).error).toBe('clock_cannot_rewind');
+
+    // Now sessionB can reserve [1250, 1380) on sharedPortfolio because sessionA's slot expired at 1250
+    const afterExpiry = await sessionB.post(endpoint + '/cases/' + secondId + '/reservations', {
+      data: { portfolio_id: sharedPortfolio, start_min: 1250, end_min: 1380, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
+    });
+    expect(afterExpiry.status()).toBe(201);
+    expect((await afterExpiry.json()).serverNow).toBe(1250);
+  } finally {
+    await sessionA.dispose();
+    await sessionB.dispose();
   }
-
-  const firstCase = await approveCase(firstId);
-  const secondCase = await approveCase(secondId);
-
-  // Atomic concurrency: two simultaneous overlapping requests -> strictly one 201 RESERVED and one 409 BLOCKED_CONFLICT
-  const [p1, p2] = await Promise.all([
-    request.post(endpoint + '/cases/' + firstId + '/reservations', {
-      data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
-    }),
-    request.post(endpoint + '/cases/' + secondId + '/reservations', {
-      data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 700, end_min: 860, expires_at: 1200, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
-    }),
-  ]);
-  const statuses = [p1.status(), p2.status()].sort();
-  expect(statuses).toEqual([201, 409]);
-
-  // Portfolio isolation: same overlapping slot [600, 780) in a DIFFERENT portfolio MUST succeed
-  const otherPortfolio = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-ALT', start_min: 600, end_min: 780, expires_at: 1000, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
-  });
-  expect(otherPortfolio.status()).toBe(201);
-  expect((await otherPortfolio.json()).portfolioId).toBe('DEMO-PORTFOLIO-ALT');
-
-  // Adjacent slot [1200, 1380) then [1380, 1500) in DEMO-PORTFOLIO-MAIN both succeed
-  const adj1 = await request.post(endpoint + '/cases/' + firstId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1200, end_min: 1380, expires_at: 1250, owner: 'OWNER', decision_revision: firstCase.approvedSnapshot.decisionRevision },
-  });
-  expect(adj1.status()).toBe(201);
-  const adj2 = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1380, end_min: 1500, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
-  });
-  expect(adj2.status()).toBe(201);
-
-  // Server clock advance to 1250 expires adj1 ([1200, 1380) expires_at=1250) and releases [1250, 1380)
-  const adv = await request.post(endpoint + '/clock/advance', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', minute: 1250 },
-  });
-  expect(adv.status()).toBe(200);
-  expect((await adv.json()).currentMinute).toBe(1250);
-
-  // Clock cannot rewind
-  const rewind = await request.post(endpoint + '/clock/advance', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', minute: 1200 },
-  });
-  expect(rewind.status()).toBe(400);
-  expect((await rewind.json()).error).toBe('clock_cannot_rewind');
-
-  // Now [1250, 1380) succeeds because adj1 expired at 1250
-  const afterExpiry = await request.post(endpoint + '/cases/' + secondId + '/reservations', {
-    data: { portfolio_id: 'DEMO-PORTFOLIO-MAIN', start_min: 1250, end_min: 1380, expires_at: 1600, owner: 'OWNER', decision_revision: secondCase.approvedSnapshot.decisionRevision },
-  });
-  expect(afterExpiry.status()).toBe(201);
-  expect((await afterExpiry.json()).serverNow).toBe(1250);
 });
 
 test('R16: outcome-based lessons are retrievable from commitment & issue paths and strictly separated from declined closure notes', async ({ request }) => {
@@ -617,10 +656,11 @@ test('R11 & R15: live SQLite finance traceability, posting validation, single-co
   expect(storedKeys.every(key => ['total-demo-language', 'total-demo-theme'].includes(key))).toBe(true);
 });
 
-test('R17: live API responses strictly conform to DEV/api-contract.json', async ({ request }) => {
+test('R17: live API responses and error statuses strictly conform to DEV/api-contract.json', async ({ request }) => {
   const contract = JSON.parse(readFileSync(new URL('../DEV/api-contract.json', import.meta.url), 'utf8'));
   expect(contract.recorderPolicy).toBe('SERVER_DERIVED_NEVER_TRUST_CLIENT');
   expect(contract.clockPolicy).toBe('SERVER_CONTROLLED_SIMULATION_CLOCK');
+  expect(contract.portfolioScope).toBe('SHARED_ACROSS_AUTHORIZED_SESSIONS');
 
   const routeChecks = [
     ['/summary', endpoint + '/summary'],
@@ -650,6 +690,22 @@ test('R17: live API responses strictly conform to DEV/api-contract.json', async 
   const caseBody = await (await request.get(endpoint + '/cases/S000013')).json();
   for (const field of contract.types.caseState) {
     expect(Object.hasOwn(caseBody, field), `Missing caseState field ${field}`).toBe(true);
+  }
+
+  // Validate contract-declared error statuses (400, 403, 404, 409, 422, 503)
+  const errorProbes = [
+    [400, await request.get(endpoint + '/reservations?now=10')],
+    [400, await request.post(endpoint + '/cases/S000013/actions', { data: { revision: 0, action: 'REPORT', actor: 'EXPERT', recorder: 'FORGED', reason: 'Contract 400 probe' } })],
+    [403, await request.post(endpoint + '/cases/S000013/actions', { data: { revision: 0, action: 'REPORT', actor: 'DECIDER', reason: 'Contract 403 probe' } })],
+    [404, await request.get(endpoint + '/scenarios/S999999')],
+    [409, await request.post(endpoint + '/cases/S000013/actions', { data: { revision: 99, action: 'REPORT', actor: 'EXPERT', reason: 'Contract 409 probe' } })],
+    [422, await request.post(endpoint + '/finance/verify-posting', { data: { document: 'SYN-SET-01', period: '2026-11', confirmedByFinance: true } })],
+    [503, await request.get(endpoint + '/governance/queue?mode=enterprise')],
+  ];
+  for (const [expectedStatus, res] of errorProbes) {
+    expect(res.status()).toBe(expectedStatus);
+    const errBody = await res.json();
+    expect(contract.errors[String(expectedStatus)]).toContain(errBody.error);
   }
 });
 

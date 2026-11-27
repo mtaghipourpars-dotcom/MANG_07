@@ -10,9 +10,11 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "start:local": "node scripts/start-local.mjs",
     "build": "node scripts/validate-agent-skills.mjs",
     "lint": "node scripts/validate-agent-skills.mjs",
-    "test": "npm run validate:skills && playwright test",
+    "test": "npm run validate:skills && npm run test:unit && playwright test",
+    "test:unit": "node --test tests/unit/*.test.mjs",
     "test:demo": "playwright test",
     "validate:skills": "node scripts/validate-agent-skills.mjs"
   },

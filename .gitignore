@@ -5,3 +5,4 @@ playwright-report/
 blob-report/
 scenario-lab/__pycache__/
 *.pyc
+pvpt-scenarios.sqlite*

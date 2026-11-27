@@ -30,7 +30,7 @@ function transaction(db, run) {
 function migrate(db) {
   transaction(db, () => {
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 4) throw new Error('The PVPT database schema is newer than this application.');
+    if (version > 5) throw new Error('The PVPT database schema is newer than this application.');
     if (version === 0) db.exec(`
       CREATE TABLE workspaces (
         id TEXT PRIMARY KEY,
@@ -246,6 +246,39 @@ function migrate(db) {
         ON total_demo_lessons(workspace_id, anchor, scenario_id);
 
       PRAGMA user_version = 4;
+    `);
+    if (version < 5) db.exec(`
+      CREATE TABLE total_demo_portfolio_clocks (
+        portfolio_id TEXT PRIMARY KEY,
+        current_minute INTEGER NOT NULL CHECK(current_minute >= 0),
+        mode TEXT NOT NULL CHECK(mode = 'CONTROLLED_SIMULATION_CLOCK'),
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      INSERT OR IGNORE INTO total_demo_portfolio_clocks (portfolio_id, current_minute, mode, updated_at)
+      SELECT portfolio_id, MAX(current_minute), 'CONTROLLED_SIMULATION_CLOCK', MAX(updated_at)
+      FROM total_demo_clocks
+      GROUP BY portfolio_id;
+
+      CREATE INDEX total_demo_res_shared_portfolio_window
+        ON total_demo_reservations(portfolio_id, resource, start_min, end_min, expires_at);
+
+      CREATE TABLE total_demo_portfolio_conflicts (
+        attempt_workspace_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        reservation_workspace_id TEXT NOT NULL,
+        reservation_id TEXT NOT NULL,
+        PRIMARY KEY(attempt_workspace_id, attempt_id, reservation_id),
+        FOREIGN KEY(attempt_workspace_id, attempt_id) REFERENCES total_demo_reservation_attempts(workspace_id, id),
+        FOREIGN KEY(reservation_workspace_id, reservation_id) REFERENCES total_demo_reservations(workspace_id, id)
+      ) STRICT;
+
+      INSERT OR IGNORE INTO total_demo_portfolio_conflicts
+        (attempt_workspace_id, attempt_id, reservation_workspace_id, reservation_id)
+      SELECT workspace_id, attempt_id, workspace_id, reservation_id
+      FROM total_demo_reservation_conflicts;
+
+      PRAGMA user_version = 5;
     `);
   });
 }
@@ -467,13 +500,13 @@ export function openWorkspaceDb(filename, seeds) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const readClock = db.prepare(`
-    SELECT current_minute, mode, updated_at FROM total_demo_clocks
-    WHERE workspace_id = ? AND portfolio_id = ?
+    SELECT current_minute, mode, updated_at FROM total_demo_portfolio_clocks
+    WHERE portfolio_id = ?
   `);
   const upsertClock = db.prepare(`
-    INSERT INTO total_demo_clocks (workspace_id, portfolio_id, current_minute, mode, updated_at)
-    VALUES (?, ?, ?, 'CONTROLLED_SIMULATION_CLOCK', ?)
-    ON CONFLICT(workspace_id, portfolio_id) DO UPDATE
+    INSERT INTO total_demo_portfolio_clocks (portfolio_id, current_minute, mode, updated_at)
+    VALUES (?, ?, 'CONTROLLED_SIMULATION_CLOCK', ?)
+    ON CONFLICT(portfolio_id) DO UPDATE
     SET current_minute = excluded.current_minute, updated_at = excluded.updated_at
   `);
   const readCaseReservations = db.prepare(`
@@ -485,26 +518,26 @@ export function openWorkspaceDb(filename, seeds) {
   const readPortfolioReservations = db.prepare(`
     SELECT id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, created_at
     FROM total_demo_reservations
-    WHERE workspace_id = ? AND (? IS NULL OR portfolio_id = ?) AND (? IS NULL OR resource = ?)
+    WHERE (? IS NULL OR portfolio_id = ?) AND (? IS NULL OR resource = ?)
     ORDER BY start_min, id
   `);
   const readReservationAttempts = db.prepare(`
-    SELECT id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at
+    SELECT id, workspace_id, portfolio_id, scenario_id, decision_revision, resource, owner, order_id, start_min, end_min, expires_at, recorded_at, status, created_at
     FROM total_demo_reservation_attempts
     WHERE workspace_id = ? AND (? IS NULL OR scenario_id = ?) AND (? IS NULL OR portfolio_id = ?)
     ORDER BY rowid DESC LIMIT 50
   `);
   const readAttemptConflicts = db.prepare(`
     SELECT c.reservation_id, r.portfolio_id, r.scenario_id, r.order_id, r.owner, r.start_min, r.end_min
-    FROM total_demo_reservation_conflicts c
-    JOIN total_demo_reservations r ON r.workspace_id = c.workspace_id AND r.id = c.reservation_id
-    WHERE c.workspace_id = ? AND c.attempt_id = ?
+    FROM total_demo_portfolio_conflicts c
+    JOIN total_demo_reservations r ON r.workspace_id = c.reservation_workspace_id AND r.id = c.reservation_id
+    WHERE c.attempt_workspace_id = ? AND c.attempt_id = ?
     ORDER BY c.reservation_id
   `);
   const findOverlaps = db.prepare(`
-    SELECT id, portfolio_id, scenario_id, order_id, owner, start_min, end_min
+    SELECT id, workspace_id, portfolio_id, scenario_id, order_id, owner, start_min, end_min
     FROM total_demo_reservations
-    WHERE workspace_id = ? AND portfolio_id = ? AND resource = ? AND expires_at > ? AND start_min < ? AND end_min > ?
+    WHERE portfolio_id = ? AND resource = ? AND expires_at > ? AND start_min < ? AND end_min > ?
     ORDER BY id
   `);
   const addAttempt = db.prepare(`
@@ -521,8 +554,8 @@ export function openWorkspaceDb(filename, seeds) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const addConflict = db.prepare(`
-    INSERT INTO total_demo_reservation_conflicts (workspace_id, attempt_id, reservation_id)
-    VALUES (?, ?, ?)
+    INSERT INTO total_demo_portfolio_conflicts (attempt_workspace_id, attempt_id, reservation_workspace_id, reservation_id)
+    VALUES (?, ?, ?, ?)
   `);
   const readCaseLinks = db.prepare(`
     SELECT scenario_id, commitment_id, issue_id, option_id, effect_type, review_status, version, evidence_ref, actor, at
@@ -654,26 +687,26 @@ export function openWorkspaceDb(filename, seeds) {
         at: row.at,
       }));
     },
-    readTotalDemoClock(workspace, portfolioId = 'DEMO-PORTFOLIO-MAIN') {
-      const row = readClock.get(workspace, portfolioId);
+    readTotalDemoClock(_workspace, portfolioId = 'DEMO-PORTFOLIO-MAIN') {
+      const row = readClock.get(portfolioId);
       return row
         ? { portfolioId, currentMinute: row.current_minute, mode: row.mode, updatedAt: row.updated_at }
         : { portfolioId, currentMinute: 0, mode: 'CONTROLLED_SIMULATION_CLOCK', updatedAt: null };
     },
-    advanceTotalDemoClock(workspace, portfolioId, targetMinute) {
+    advanceTotalDemoClock(_workspace, portfolioId, targetMinute) {
       return transaction(db, () => {
-        const current = readClock.get(workspace, portfolioId)?.current_minute ?? 0;
+        const current = readClock.get(portfolioId)?.current_minute ?? 0;
         if (targetMinute < current) return { error: 'clock_cannot_rewind', currentMinute: current };
         const stamp = new Date().toISOString();
-        upsertClock.run(workspace, portfolioId, targetMinute, stamp);
+        upsertClock.run(portfolioId, targetMinute, stamp);
         return { portfolioId, currentMinute: targetMinute, mode: 'CONTROLLED_SIMULATION_CLOCK', updatedAt: stamp };
       });
     },
     readTotalDemoReservations(workspace, { scenario = null, resource = null, portfolioId = null } = {}) {
       const reservations = scenario
         ? readCaseReservations.all(workspace, scenario, portfolioId, portfolioId)
-        : readPortfolioReservations.all(workspace, portfolioId, portfolioId, resource, resource);
-      const attempts = readReservationAttempts.all(workspace, scenario, scenario, portfolioId, portfolioId).map(attempt => ({
+        : readPortfolioReservations.all(portfolioId, portfolioId, resource, resource);
+      const attempts = readReservationAttempts.all(workspace, scenario, scenario, portfolioId, portfolioId).map(({ workspace_id: _w, ...attempt }) => ({
         ...attempt,
         conflicts: readAttemptConflicts.all(workspace, attempt.id),
       }));
@@ -767,7 +800,7 @@ export function openWorkspaceDb(filename, seeds) {
     reserveTotalDemoCapacity(workspace, request) {
       return transaction(db, () => {
         const { portfolioId = 'DEMO-PORTFOLIO-MAIN', scenarioId, decisionRevision, resource, owner, orderId, start, end, expires } = request;
-        const now = readClock.get(workspace, portfolioId)?.current_minute ?? 0;
+        const now = readClock.get(portfolioId)?.current_minute ?? 0;
         if (start >= end || start < now || expires <= now) {
           return { error: 'invalid_reservation_window', serverNow: now };
         }
@@ -781,14 +814,14 @@ export function openWorkspaceDb(filename, seeds) {
           updateAttemptStatus.run('APPROVAL_REQUIRED', workspace, attemptId);
           return { id: attemptId, portfolioId, serverNow: now, status: 'APPROVAL_REQUIRED', conflictingOrders: [], conflicts: [] };
         }
-        const collisions = findOverlaps.all(workspace, portfolioId, resource, now, end, start);
+        const collisions = findOverlaps.all(portfolioId, resource, now, end, start);
         const status = collisions.length ? 'BLOCKED_CONFLICT' : 'RESERVED';
         updateAttemptStatus.run(status, workspace, attemptId);
         if (status === 'RESERVED') {
           addReservation.run(attemptId, workspace, portfolioId, scenarioId, approval.decision_revision,
             resource, owner, orderId, start, end, expires, now, stamp);
         } else {
-          for (const hit of collisions) addConflict.run(workspace, attemptId, hit.id);
+          for (const hit of collisions) addConflict.run(workspace, attemptId, hit.workspace_id, hit.id);
         }
         return {
           id: attemptId,
@@ -797,7 +830,7 @@ export function openWorkspaceDb(filename, seeds) {
           status,
           decisionRevision: approval.decision_revision,
           conflictingOrders: [...new Set(collisions.map(hit => hit.order_id))].sort(),
-          conflicts: collisions,
+          conflicts: collisions.map(({ workspace_id: _w, ...hit }) => hit),
         };
       });
     },
