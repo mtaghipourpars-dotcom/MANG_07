@@ -26,7 +26,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'node server.js',
+    command: 'npm run localhost',
     env: { PORT:'4173',PVPT_DATABASE_PATH:':memory:' },
     url: 'http://127.0.0.1:4173/api/health',
     reuseExistingServer: false,

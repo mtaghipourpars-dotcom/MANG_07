@@ -1,0 +1,32 @@
+{
+  "run_id": "20261127T105445151452Z-e32d0168b010",
+  "expected": 43200,
+  "counts": {
+    "PASS": 43200
+  },
+  "covered_states": {
+    "DRAFT": 43200,
+    "REPORTED": 43200,
+    "SCOPED": 43200,
+    "ASSESSED": 43200,
+    "DECLINED": 28800,
+    "CLOSED": 36000,
+    "APPROVED": 14400,
+    "EXECUTED": 14400,
+    "OBSERVED": 7200
+  },
+  "covered_edges": {
+    "DRAFT → EXPERT → REPORT → REPORTED": 43200,
+    "REPORTED → OWNER → SCOPE → SCOPED": 43200,
+    "SCOPED → ASSESSOR → ASSESS → ASSESSED": 43200,
+    "ASSESSED → DECIDER → DECLINE → DECLINED": 28800,
+    "DECLINED → EXPERT → CLOSE → CLOSED": 28800,
+    "ASSESSED → DECIDER → APPROVE → APPROVED": 14400,
+    "APPROVED → OWNER → EXECUTE → EXECUTED": 14400,
+    "EXECUTED → OWNER → OBSERVE → OBSERVED": 7200,
+    "OBSERVED → EXPERT → CLOSE → CLOSED": 7200
+  },
+  "matched_runtime_actions": 230400,
+  "matched_runtime_outcome_lessons": 7200,
+  "passed": true
+}

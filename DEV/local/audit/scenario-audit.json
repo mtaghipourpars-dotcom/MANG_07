@@ -1,0 +1,140 @@
+{
+  "run_id": "20261127T105445151452Z-e32d0168b010",
+  "source": "e32d0168b01018ee10cddc638a199b5595387ffb298dec095c3e31418a3b4a84",
+  "catalog": {
+    "scenarios": 43200,
+    "gate:FEASIBLE": 20400,
+    "decision:NOT_REQUIRED": 3600,
+    "execution:NOT_STARTED": 28800,
+    "outcome:NOT_APPLICABLE": 28800,
+    "decision:NO_ACTION": 3600,
+    "gate:WAIT_EVIDENCE": 3600,
+    "decision:NOT_APPROVED": 21600,
+    "gate:STALE": 3600,
+    "gate:EXPIRED": 3600,
+    "gate:BLOCKED_RESERVATION": 3600,
+    "decision:APPROVED": 14400,
+    "execution:COMPLETED": 2400,
+    "outcome:VERIFIED": 2700,
+    "outcome:PARTIALLY_VERIFIED": 4500,
+    "execution:FAILED": 2400,
+    "execution:PARTIAL": 2400,
+    "execution:CANCELLED": 2400,
+    "outcome:PENDING": 7200,
+    "execution:SUPERSEDED": 2400,
+    "execution:IN_PROGRESS": 2400,
+    "gate:BLOCKED_DONOR": 8400,
+    "anchors": 75,
+    "events": 208800,
+    "effects": 388800
+  },
+  "execution": {
+    "PASS": 43200
+  },
+  "database": {
+    "run_id": "20261127T105445151452Z-e32d0168b010",
+    "source": "e32d0168b01018ee10cddc638a199b5595387ffb298dec095c3e31418a3b4a84",
+    "data_class": "DEMO_SYNTHETIC",
+    "expected_count": 43200,
+    "test_count": 43200,
+    "decision_count": 43200,
+    "lesson_count": 43200,
+    "event_count": 273600,
+    "outcomes": {
+      "PASS": 43200,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "digest": "6d9f8ab84d4ef64d4e6f032c93610ccb83287c7859857e096f00184dc2a81c7b"
+  },
+  "integrity": {
+    "run_id": "20261127T105445151452Z-e32d0168b010",
+    "source": "e32d0168b01018ee10cddc638a199b5595387ffb298dec095c3e31418a3b4a84",
+    "data_class": "DEMO_SYNTHETIC",
+    "expected_count": 43200,
+    "test_count": 43200,
+    "decision_count": 43200,
+    "lesson_count": 43200,
+    "event_count": 273600,
+    "outcomes": {
+      "PASS": 43200,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "digest": "6d9f8ab84d4ef64d4e6f032c93610ccb83287c7859857e096f00184dc2a81c7b"
+  },
+  "oracle": {
+    "oracleVersion": 1,
+    "status": "PASS",
+    "sourceSHA256": {
+      "data/product-project-fixture.json": "7d992f350ea00ab43572026ea389aee9baf24f8ddef08e632fb85f8c334f7ecd",
+      "data/reference-datasets.json": "7ce9a9f01cdbf621124d11e1db26f69aee540b5214323caff08c107c4e381a75",
+      "scenario-lab/evidence/summary.json": "844c55a267e20200ae1356b3489fc15c4a5eca069ad2bd1b694481c28b2d1179"
+    },
+    "dimensions": {
+      "anchors": 75,
+      "stages": [
+        "engineering",
+        "procurement",
+        "stock_release",
+        "manufacturing",
+        "quality_fat",
+        "dispatch",
+        "acceptance",
+        "collection"
+      ],
+      "options": [
+        "expedite",
+        "alternate",
+        "transfer"
+      ],
+      "profiles": [
+        "ready",
+        "no_action",
+        "unknown",
+        "stale",
+        "late_decision",
+        "shared_conflict",
+        "approved",
+        "failed",
+        "partial",
+        "cancelled",
+        "superseded",
+        "pending_observation"
+      ],
+      "variants": [
+        0,
+        1
+      ]
+    },
+    "verified": {
+      "anchors": 75,
+      "scenarios": 43200,
+      "effects": 388800,
+      "events": 208800,
+      "gate:FEASIBLE": 20400,
+      "decision:NOT_REQUIRED": 3600,
+      "execution:NOT_STARTED": 28800,
+      "outcome:NOT_APPLICABLE": 28800,
+      "decision:NO_ACTION": 3600,
+      "gate:WAIT_EVIDENCE": 3600,
+      "decision:NOT_APPROVED": 21600,
+      "gate:STALE": 3600,
+      "gate:EXPIRED": 3600,
+      "gate:BLOCKED_RESERVATION": 3600,
+      "decision:APPROVED": 14400,
+      "execution:COMPLETED": 2400,
+      "outcome:VERIFIED": 2700,
+      "outcome:PARTIALLY_VERIFIED": 4500,
+      "execution:FAILED": 2400,
+      "execution:PARTIAL": 2400,
+      "execution:CANCELLED": 2400,
+      "outcome:PENDING": 7200,
+      "execution:SUPERSEDED": 2400,
+      "execution:IN_PROGRESS": 2400,
+      "gate:BLOCKED_DONOR": 8400
+    }
+  },
+  "linked_cases": 43200,
+  "expected": 43200
+}
